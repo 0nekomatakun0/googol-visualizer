@@ -1,6 +1,6 @@
 /**
  * CounterRenderer — 歯車の回転カウンター表示
- * 「刻印」のような見た目を目指す
+ * 視認性重視。背景ブラックプレートに白字+金縁。
  */
 class CounterRenderer {
   constructor(canvas) {
@@ -9,65 +9,84 @@ class CounterRenderer {
   }
 
   resize() {
-    this.canvas.width = window.innerWidth;
+    this.canvas.width  = window.innerWidth;
     this.canvas.height = window.innerHeight;
   }
 
-  /**
-   * @param {Gear[]} gears
-   * @param {Object[]} gearLayouts — GearRendererのlayouts
-   */
   render(gears, gearLayouts) {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     for (let i = 0; i < gears.length; i++) {
-      const gear = gears[i];
+      const gear   = gears[i];
       const layout = gearLayouts[i];
       if (!layout) continue;
 
       const count = gear.getDisplayCount();
       const { x, y, r } = layout;
-
-      // カウンター位置（歯車の上）
       const cx = x;
-      const cy = y - r - 18;
+      const cy = y - r - 22;
 
-      // 透明度（左ほど薄く）
-      const tPos = i / (gears.length - 1); // 0=左, 1=右
-      const alpha = 0.08 + tPos * 0.25;
+      const tPos     = i / (gears.length - 1); // 0=左,1=右
+      const speed    = Math.abs(gear.angularVelocity);
+      const isActive = speed > 0.0001 || count > 0;
 
-      // 速度に応じた輝き
-      const speed = Math.abs(gear.angularVelocity);
-      const glow = Math.min(1, speed * 30);
-      const finalAlpha = Math.min(0.9, alpha + glow * 0.6);
-
-      // フォントサイズ（歯車サイズに比例）
-      const fontSize = Math.max(8, Math.min(22, r * 0.3));
+      // フォントサイズ
+      const fontSize = Math.max(10, Math.min(26, r * 0.38));
+      const padW = fontSize * 1.1;
+      const padH = fontSize * 1.4;
 
       ctx.save();
-      ctx.font = `${fontSize}px 'Courier New', monospace`;
-      ctx.textAlign = 'center';
+
+      // ── 背景プレート（常に表示、視認性確保）──
+      const plateAlpha = 0.72 + tPos * 0.18;
+      ctx.fillStyle = `rgba(0,0,0,${plateAlpha})`;
+      this._roundRect(ctx, cx - padW, cy - padH * 0.55, padW * 2, padH, 3);
+      ctx.fill();
+
+      // プレート縁（アクティブ時は金色）
+      const borderAlpha = isActive ? 0.55 + speed * 8 : 0.18;
+      ctx.strokeStyle = isActive
+        ? `rgba(200,170,80,${Math.min(0.9, borderAlpha)})`
+        : `rgba(120,100,60,0.2)`;
+      ctx.lineWidth = 0.8;
+      this._roundRect(ctx, cx - padW, cy - padH * 0.55, padW * 2, padH, 3);
+      ctx.stroke();
+
+      // ── 数字 ──
+      ctx.font = `bold ${fontSize}px 'Courier New', monospace`;
+      ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
 
-      // 刻印感のあるシャドウ
-      ctx.shadowColor = `rgba(180,140,60,${glow * 0.8})`;
-      ctx.shadowBlur = 8 * glow;
+      // グロー（回転中）
+      if (speed > 0.0003) {
+        ctx.shadowColor = `rgba(220,190,100,${Math.min(0.8, speed * 25)})`;
+        ctx.shadowBlur  = Math.min(12, speed * 200);
+      }
 
-      // テキスト
-      ctx.fillStyle = `rgba(200,180,120,${finalAlpha})`;
+      // 数字色：アクティブ=明るいクリーム、静止=薄いグレー
+      const textAlpha = isActive ? 0.95 : 0.35 + tPos * 0.25;
+      ctx.fillStyle = count > 0
+        ? `rgba(240,220,150,${textAlpha})`
+        : `rgba(160,150,130,${textAlpha * 0.6})`;
+
       ctx.fillText(count.toString(), cx, cy);
-
-      // 目盛り線（刻印感）
-      ctx.strokeStyle = `rgba(180,160,100,${alpha * 0.5})`;
-      ctx.lineWidth = 0.5;
-      const tickW = fontSize * 0.8;
-      ctx.beginPath();
-      ctx.moveTo(cx - tickW, cy + fontSize * 0.7);
-      ctx.lineTo(cx + tickW, cy + fontSize * 0.7);
-      ctx.stroke();
 
       ctx.restore();
     }
+  }
+
+  _roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 }

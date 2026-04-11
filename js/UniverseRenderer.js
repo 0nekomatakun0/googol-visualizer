@@ -40,6 +40,9 @@ class UniverseRenderer {
     // マイルストーン
     this.milestoneQueue = []; // { timer, color, rings }
 
+    // 流れ星
+    this.shootingStars = [];
+
     this._initStars();
     this._initParticles();
     this._initNebulae();
@@ -104,6 +107,21 @@ class UniverseRenderer {
   }
 
   // ─────────────────────────── public API ────────────────────────
+
+  triggerShootingStar() {
+    const W = this.W, H = this.H;
+    const angle = (Math.random() * 0.4 + 0.1) * Math.PI; // 斜め下方向
+    const speed = 8 + Math.random() * 12;
+    this.shootingStars.push({
+      x: Math.random() * W * 0.8 + W * 0.1,
+      y: Math.random() * H * 0.35,
+      vx:  Math.cos(angle) * speed,
+      vy:  Math.sin(angle) * speed,
+      len: 60 + Math.random() * 120,
+      life: 1,
+      decay: 0.022 + Math.random() * 0.015,
+    });
+  }
 
   setAmbient(phase) {
     this.ambientTarget = phase;
@@ -185,6 +203,7 @@ class UniverseRenderer {
 
     this._drawParticles(ctx, speed, W, H);
     this._drawEvents(ctx);
+    this._drawShootingStars(ctx);
 
     if (phase === 0) this._drawBigBang(ctx, W, H, cosmicTime, speed);
     if (phase >= 5)  this._drawEarth(ctx, W, H, normTime, ambient);
@@ -430,6 +449,44 @@ class UniverseRenderer {
   }
 
   // ─────────────────────────── big bang ────────────────────────
+
+  _drawShootingStars(ctx) {
+    for (let i = this.shootingStars.length - 1; i >= 0; i--) {
+      const s = this.shootingStars[i];
+      s.life -= s.decay;
+      if (s.life <= 0) { this.shootingStars.splice(i, 1); continue; }
+
+      s.x += s.vx;
+      s.y += s.vy;
+
+      const tailX = s.x - s.vx * (s.len / Math.sqrt(s.vx*s.vx+s.vy*s.vy));
+      const tailY = s.y - s.vy * (s.len / Math.sqrt(s.vx*s.vx+s.vy*s.vy));
+
+      const grad = ctx.createLinearGradient(tailX, tailY, s.x, s.y);
+      grad.addColorStop(0, `rgba(255,255,255,0)`);
+      grad.addColorStop(0.6, `rgba(200,220,255,${s.life * 0.4})`);
+      grad.addColorStop(1,   `rgba(255,255,255,${s.life * 0.9})`);
+
+      ctx.save();
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.5 * s.life;
+      ctx.beginPath();
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+
+      // 先端グロー
+      const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 6);
+      glow.addColorStop(0, `rgba(220,240,255,${s.life * 0.8})`);
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
 
   _drawBigBang(ctx, W, H, cosmicTime, speed) {
     if (cosmicTime >= 0.3) return;

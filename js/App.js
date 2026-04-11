@@ -13,23 +13,23 @@
   const tutorial       = document.getElementById('tutorial');
   const eventFlash     = document.getElementById('event-flash');
   const milestoneMsg   = document.getElementById('milestone-msg');
+  const goalScreen     = document.getElementById('goal-screen');
 
   // ─── モジュール ───
   const gears = [];
   for (let i = 0; i < GEAR_COUNT; i++) gears.push(new Gear(i, GEAR_COUNT));
 
-  const timeCtrl        = new TimeController(GEAR_COUNT);
+  const timeCtrl         = new TimeController(GEAR_COUNT);
   const universeRenderer = new UniverseRenderer(universeCanvas);
-  const gearRenderer    = new GearRenderer(gearCanvas);
-  const counterRenderer = new CounterRenderer(counterCanvas);
-  const inputCtrl       = new InputController();
-  const audioCtrl       = new AudioController();
+  const gearRenderer     = new GearRenderer(gearCanvas);
+  const counterRenderer  = new CounterRenderer(counterCanvas);
+  const inputCtrl        = new InputController();
+  const audioCtrl        = new AudioController();
 
   // ─── 慣性係数 ───
   const INERTIA = [];
   for (let i = 0; i < GEAR_COUNT; i++) {
-    const t = i / (GEAR_COUNT - 1); // 0=左,1=右
-    INERTIA[i] = 0.988 - t * 0.065;
+    INERTIA[i] = 0.988 - (i / (GEAR_COUNT - 1)) * 0.065;
   }
   const velocities = new Float64Array(GEAR_COUNT);
 
@@ -45,26 +45,24 @@
   onResize();
 
   // ─── フェーズラベル ───
+  phaseLabel.style.opacity = '0';
   timeCtrl.onPhaseChange = function(name) {
     phaseLabel.textContent = '— ' + name + ' —';
     phaseLabel.style.opacity = '1';
     clearTimeout(phaseLabel._t);
-    phaseLabel._t = setTimeout(function() { phaseLabel.style.opacity = '0.08'; }, 4000);
+    phaseLabel._t = setTimeout(function() { phaseLabel.style.opacity = '0'; }, 4500);
   };
-  phaseLabel.style.opacity = '0.08';
 
   // ─── マイルストーン ───
   timeCtrl.onMilestone = function(ms) {
-    // 宇宙背景演出
     universeRenderer.triggerMilestone(ms);
+    audioCtrl.playMilestoneChime(ms.power);
 
-    // フラッシュ色
-    const [r,g,b] = ms.color;
+    const [r, g, b] = ms.color;
     eventFlash.style.background =
-      `radial-gradient(ellipse at 50% 45%, rgba(${r},${g},${b},0.22) 0%, transparent 65%)`;
+      `radial-gradient(ellipse at 50% 45%, rgba(${r},${g},${b},0.25) 0%, transparent 65%)`;
     eventFlash.classList.add('active');
 
-    // テキスト
     milestoneMsg.querySelector('.title').textContent = ms.title;
     milestoneMsg.querySelector('.sub').textContent   = ms.sub;
     milestoneMsg.classList.add('active');
@@ -73,15 +71,12 @@
     milestoneMsg._t = setTimeout(function() {
       eventFlash.classList.remove('active');
       milestoneMsg.classList.remove('active');
-    }, 3500);
+    }, 4000);
   };
 
-  // ─── アンビエント変化 ───
+  // ─── アンビエント ───
   timeCtrl.onAmbient = function(phase) {
     universeRenderer.setAmbient(phase);
-    // ambientBlendをUniverseRenderer内で管理するため、
-    // timeCtrlのambientBlendを伝える
-    timeCtrl.ambientBlend = 0;
   };
 
   // ─── カーソル ───
@@ -96,16 +91,37 @@
     if (tutorialDone) return;
     tutorialDone = true;
     tutorial.classList.add('fade-out');
-    setTimeout(function() { tutorial.style.display = 'none'; }, 2600);
+    setTimeout(function() { tutorial.style.display = 'none'; }, 2700);
   }
+
+  // ─── 完走 ───
+  let goalFired = false;
+  function fireGoal() {
+    if (goalFired) return;
+    goalFired = true;
+    goalScreen.classList.add('active');
+    audioCtrl.playGoalFanfare();
+    universeRenderer.triggerMilestone({ color: [220, 200, 120], power: 9 });
+  }
+
+  // ─── 流れ星スケジューラ ───
+  let nextShootingStarTime = Date.now() + 6000 + Math.random() * 8000;
+
+  function scheduleShootingStar() {
+    nextShootingStarTime = Date.now() + 5000 + Math.random() * 12000;
+  }
+
+  // ─── 歯車クリック音のタイミング管理 ───
+  // 右端歯車が1歯分回るたびにクリック
+  let prevRightAngle = 0;
+  let clickAccum = 0;
+  const TEETH = 16; // 右端の歯数（GearRenderer依存しない近似値）
+  const CLICK_INTERVAL = (Math.PI * 2) / TEETH;
 
   // ─── 状態 ───
   let frameCount  = 0;
   let audioInited = false;
   let firstInput  = false;
-
-  // 累積回転数
-  const totalRotations = new Float64Array(GEAR_COUNT);
 
   // ─── メインループ ───
   function loop() {
@@ -126,12 +142,12 @@
     }
 
     // 右端に入力
-    velocities[GEAR_COUNT-1] += inputDelta * 0.7;
-    if (velocities[GEAR_COUNT-1] < 0) velocities[GEAR_COUNT-1] = 0;
+    velocities[GEAR_COUNT - 1] += inputDelta * 0.7;
+    if (velocities[GEAR_COUNT - 1] < 0) velocities[GEAR_COUNT - 1] = 0;
 
-    // 右→左伝播（10:1 慣性込み）
-    for (let i = GEAR_COUNT-2; i >= 0; i--) {
-      const target = velocities[i+1] * 0.1;
+    // 右→左伝播
+    for (let i = GEAR_COUNT - 2; i >= 0; i--) {
+      const target = velocities[i + 1] * 0.1;
       const follow = 0.025 + (i / GEAR_COUNT) * 0.015;
       velocities[i] += (target - velocities[i]) * follow;
       if (velocities[i] < 0) velocities[i] = 0;
@@ -140,39 +156,55 @@
     // 慣性減衰・角度更新
     for (let i = 0; i < GEAR_COUNT; i++) {
       velocities[i] *= INERTIA[i];
-      const tremor = Math.sin(frameCount*0.038 + i*1.9)
-                   * (1 - i/(GEAR_COUNT-1)) * 0.00006;
+      const tremor = Math.sin(frameCount * 0.038 + i * 1.9)
+                   * (1 - i / (GEAR_COUNT - 1)) * 0.00006;
       gears[i].angularVelocity = velocities[i];
       gears[i].angle += velocities[i] + tremor;
     }
 
-    // ─── カウント計算（右端基準の連鎖） ───
-    // 右端の累積回転数
-    const rightRot = gears[GEAR_COUNT-1].angle / (Math.PI*2);
+    // ─── カウント（右端基準の連鎖） ───
+    const rightRot = gears[GEAR_COUNT - 1].angle / (Math.PI * 2);
     for (let i = 0; i < GEAR_COUNT; i++) {
-      const power = GEAR_COUNT-1-i; // 右端からの距離
-      const logRot = rightRot / Math.pow(10, power);
-      gears[i].rotationCount = Math.floor(logRot) % 10;
+      const power = GEAR_COUNT - 1 - i;
+      gears[i].rotationCount = Math.floor(rightRot / Math.pow(10, power)) % 10;
     }
 
-    // ─── TimeController更新 ───
-    const rightFullRot  = gears[GEAR_COUNT-1].angle / (Math.PI*2);
-    const leftLogicalRad = rightFullRot / Math.pow(10, GEAR_COUNT-1) * (Math.PI*2);
-    timeCtrl.update(rightFullRot, leftLogicalRad);
+    // ─── TimeController ───
+    const leftLogicalRad = (rightRot / Math.pow(10, GEAR_COUNT - 1)) * (Math.PI * 2);
+    timeCtrl.update(rightRot, leftLogicalRad);
 
-    // アンビエントブレンド
-    if (timeCtrl.ambientBlend !== undefined) {
-      timeCtrl.ambientBlend += 0.005;
-      if (timeCtrl.ambientBlend > 1) timeCtrl.ambientBlend = 1;
+    // ─── 完走チェック（左端が1周） ───
+    if (!goalFired && gears[0].rotationCount >= 1 && rightRot >= Math.pow(10, GEAR_COUNT - 1)) {
+      fireGoal();
     }
 
-    // 音声
+    // ─── 流れ星 ───
+    if (Date.now() >= nextShootingStarTime) {
+      universeRenderer.triggerShootingStar();
+      if (audioInited) audioCtrl.playShootingStar();
+      scheduleShootingStar();
+    }
+
+    // ─── 歯車クリック音 ───
     if (audioInited) {
-      audioCtrl.update(Math.abs(velocities[GEAR_COUNT-1]), timeCtrl.currentPhaseIndex);
+      const rightGearAngle = gears[GEAR_COUNT - 1].angle;
+      const angleDiff = rightGearAngle - prevRightAngle;
+      clickAccum += angleDiff;
+      prevRightAngle = rightGearAngle;
+      while (clickAccum >= CLICK_INTERVAL) {
+        clickAccum -= CLICK_INTERVAL;
+        const pitch = 0.6 + velocities[GEAR_COUNT - 1] * 8;
+        audioCtrl.playClick(pitch);
+      }
+    }
+
+    // ─── 音声更新 ───
+    if (audioInited) {
+      audioCtrl.update(Math.abs(velocities[GEAR_COUNT - 1]), timeCtrl.currentPhaseIndex);
     }
 
     // ─── 描画 ───
-    universeRenderer.render(timeCtrl, velocities[GEAR_COUNT-1]);
+    universeRenderer.render(timeCtrl, velocities[GEAR_COUNT - 1]);
     gearRenderer.render(gears, frameCount, timeCtrl);
     counterRenderer.render(gears, gearRenderer.gearLayouts);
   }
