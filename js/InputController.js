@@ -117,11 +117,11 @@ class InputController {
     const isVertical = Math.abs(dy) >= Math.abs(dx) * 0.5;
 
     if (isVertical && dy > 0) { // 上スワイプ = 正回転のみ
-      // 画面高さ / 4 で 1周分
-      const sensitivity = (Math.PI * 2) / (window.innerHeight * 0.25);
+      // 画面高さ全体で約1周分
+      const sensitivity = (Math.PI * 2) / (window.innerHeight * 1.2);
       const delta = dy * sensitivity;
       this.deltaAngle      = delta;
-      this._touchVY        = dy * sensitivity * 0.8 + this._touchVY * 0.2;
+      this._touchVY        = dy * sensitivity * 0.7 + this._touchVY * 0.3;
       this.angularMomentum = this._touchVY;
     }
 
@@ -132,7 +132,7 @@ class InputController {
   _onTouchEnd() {
     if (this.isDragging) {
       // フリック慣性：手を離した時の速度を残す
-      this.deltaAngle = Math.max(0, this.angularMomentum * 1.8);
+      this.deltaAngle = Math.max(0, this.angularMomentum * 0.6);
     }
     this.isDragging = false;
   }

@@ -305,20 +305,11 @@ class UniverseRenderer {
 
       if (fadeAlpha < 0.01) continue;
 
-      // サイズは変えない（r固定）
+      // 点だけ描画（グローなし）
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = `hsla(${p.hue},72%,65%,${fadeAlpha * 0.65})`;
+      ctx.fillStyle = `hsla(${p.hue},70%,70%,${fadeAlpha * 0.55})`;
       ctx.fill();
-
-      // 中〜高密度のみグロー（控えめ）
-      if (density > 0.3 && fadeAlpha > 0.2) {
-        const gw = ctx.createRadialGradient(p.x,p.y,0, p.x,p.y,p.r*3.5);
-        gw.addColorStop(0, `hsla(${p.hue},80%,60%,${fadeAlpha*0.12})`);
-        gw.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = gw;
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.r*3.5,0,Math.PI*2); ctx.fill();
-      }
     }
   }
 
