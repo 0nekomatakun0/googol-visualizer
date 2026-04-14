@@ -44,14 +44,16 @@ assets/audio/se_gear_click.mp3
 
 ### ステップ2 — manifest.json を編集する
 
+パスは **`manifest.json` と同じフォルダ（`assets/`）を基準**にした相対パスで書きます（`audio/bgm.mp3` のように `assets/` を重ねない）。サイト直下から指定したい場合は `/audio/bgm.mp3` のように先頭 `/` を付けます。外部URLは `https://...` のまま使えます。
+
 ```json
 {
   "audio": {
-    "bgm":              "assets/audio/bgm.mp3",
-    "se_gear_click":    "assets/audio/se_gear_click.mp3",
-    "se_shooting_star": "assets/audio/se_shooting_star.mp3",
-    "se_milestone":     "assets/audio/se_milestone.mp3",
-    "se_goal":          "assets/audio/se_goal.mp3"
+    "bgm":              "audio/bgm.mp3",
+    "se_gear_click":    "audio/se_gear_click.mp3",
+    "se_shooting_star": "audio/se_shooting_star.mp3",
+    "se_milestone":     "audio/se_milestone.mp3",
+    "se_goal":          "audio/se_goal.mp3"
   },
   "images": {
     "gear_texture": null
@@ -88,7 +90,7 @@ assets/images/gear_texture.png
 {
   "audio": { ... },
   "images": {
-    "gear_texture": "assets/images/gear_texture.png"
+    "gear_texture": "images/gear_texture.png"
   }
 }
 ```
