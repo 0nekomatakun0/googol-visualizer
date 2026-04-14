@@ -1,143 +1,171 @@
 /**
- * InputController — ユーザー操作の管理
- * 右端歯車をドラッグで回転させる
+ * InputController — 操作管理
+ *
+ * PC   : マウスホイール（推奨）+ ドラッグ
+ * スマホ: 縦スワイプ → 回転量に変換（角度計算ではなくY差分）
+ *          上スワイプ = 正回転（直感的）
+ *          フリック慣性あり
  */
 class InputController {
   constructor() {
-    this.isDragging = false;
-    this.lastAngle = 0;        // 最後のマウス角度
-    this.lastX = 0;
-    this.lastY = 0;
-    this.deltaAngle = 0;       // 現フレームの角度変化
-    this.angularMomentum = 0;  // ドラッグ速度（慣性付与用）
-    this.centerX = 0;
-    this.centerY = 0;
+    this.deltaAngle      = 0;
+    this.angularMomentum = 0;
+    this.isDragging      = false;
 
-    // カーソル更新コールバック
+    // PC ドラッグ（角度ベース）
+    this.centerX  = 0;
+    this.centerY  = 0;
+    this.lastAngle = 0;
+
+    // スマホ スワイプ（Y差分ベース）
+    this._touchStartY  = 0;
+    this._touchLastY   = 0;
+    this._touchVY      = 0;  // Y速度（フリック慣性）
+    this._touchStartX  = 0;
+    this._touchLastX   = 0;
+
+    // コールバック
     this.onMouseMove = null;
 
     this._bound = {
-      mousedown: this._onMouseDown.bind(this),
-      mousemove: this._onMouseMove.bind(this),
-      mouseup: this._onMouseUp.bind(this),
+      mousedown:  this._onMouseDown.bind(this),
+      mousemove:  this._onMouseMove.bind(this),
+      mouseup:    this._onMouseUp.bind(this),
       touchstart: this._onTouchStart.bind(this),
-      touchmove: this._onTouchMove.bind(this),
-      touchend: this._onTouchEnd.bind(this),
-      wheel: this._onWheel.bind(this),
+      touchmove:  this._onTouchMove.bind(this),
+      touchend:   this._onTouchEnd.bind(this),
+      wheel:      this._onWheel.bind(this),
     };
 
-    window.addEventListener('mousedown', this._bound.mousedown);
-    window.addEventListener('mousemove', this._bound.mousemove);
-    window.addEventListener('mouseup', this._bound.mouseup);
+    window.addEventListener('mousedown',  this._bound.mousedown);
+    window.addEventListener('mousemove',  this._bound.mousemove);
+    window.addEventListener('mouseup',    this._bound.mouseup);
     window.addEventListener('touchstart', this._bound.touchstart, { passive: false });
-    window.addEventListener('touchmove', this._bound.touchmove, { passive: false });
-    window.addEventListener('touchend', this._bound.touchend);
-    window.addEventListener('wheel', this._bound.wheel, { passive: false });
+    window.addEventListener('touchmove',  this._bound.touchmove,  { passive: false });
+    window.addEventListener('touchend',   this._bound.touchend);
+    window.addEventListener('wheel',      this._bound.wheel, { passive: false });
   }
 
-  /**
-   * 右端歯車の中心座標をセット
-   */
   setGearCenter(x, y) {
     this.centerX = x;
     this.centerY = y;
   }
+
+  // ─────────────── PC マウス（ドラッグ） ────────────────────────
 
   _getAngle(x, y) {
     return Math.atan2(y - this.centerY, x - this.centerX);
   }
 
   _onMouseDown(e) {
-    this.isDragging = true;
-    this.lastAngle = this._getAngle(e.clientX, e.clientY);
+    this.isDragging    = true;
+    this.lastAngle     = this._getAngle(e.clientX, e.clientY);
     this.angularMomentum = 0;
-    this.deltaAngle = 0;
+    this.deltaAngle    = 0;
   }
 
   _onMouseMove(e) {
     if (this.onMouseMove) this.onMouseMove(e.clientX, e.clientY);
     if (!this.isDragging) return;
-
     const angle = this._getAngle(e.clientX, e.clientY);
     let delta = angle - this.lastAngle;
-
-    // 角度の折り返し対策
-    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta >  Math.PI) delta -= Math.PI * 2;
     if (delta < -Math.PI) delta += Math.PI * 2;
-
-    this.deltaAngle = delta;
-    this.angularMomentum = delta * 0.8 + this.angularMomentum * 0.2;
+    // 正方向のみ
+    if (delta > 0) {
+      this.deltaAngle      = delta;
+      this.angularMomentum = delta * 0.75 + this.angularMomentum * 0.25;
+    }
     this.lastAngle = angle;
   }
 
-  _onMouseUp(e) {
+  _onMouseUp() {
     if (this.isDragging) {
-      // ドラッグ終了時に慣性を残す
-      this.deltaAngle = this.angularMomentum;
+      this.deltaAngle = Math.max(0, this.angularMomentum);
     }
     this.isDragging = false;
   }
+
+  // ─────────────── スマホ タッチ（スワイプ） ───────────────────
+  //
+  // Y差分を回転量に変換する。
+  // 画面高さに対してどれだけ動かしたか → 2π に対応させる。
+  // → 画面を1本指で下→上にスワイプすると1回転する感覚。
 
   _onTouchStart(e) {
     e.preventDefault();
     const t = e.touches[0];
-    this.isDragging = true;
-    this.lastAngle = this._getAngle(t.clientX, t.clientY);
+    this.isDragging      = true;
+    this._touchLastY     = t.clientY;
+    this._touchLastX     = t.clientX;
+    this._touchStartY    = t.clientY;
+    this._touchVY        = 0;
     this.angularMomentum = 0;
-    this.deltaAngle = 0;
+    this.deltaAngle      = 0;
   }
 
   _onTouchMove(e) {
     e.preventDefault();
-    if (!this.isDragging) return;
+    if (!this.isDragging || e.touches.length === 0) return;
     const t = e.touches[0];
     if (this.onMouseMove) this.onMouseMove(t.clientX, t.clientY);
 
-    const angle = this._getAngle(t.clientX, t.clientY);
-    let delta = angle - this.lastAngle;
-    if (delta > Math.PI) delta -= Math.PI * 2;
-    if (delta < -Math.PI) delta += Math.PI * 2;
+    const dy = this._touchLastY - t.clientY; // 上方向が正
+    const dx = this._touchLastX - t.clientX;
 
-    this.deltaAngle = delta;
-    this.angularMomentum = delta * 0.8 + this.angularMomentum * 0.2;
-    this.lastAngle = angle;
+    // 縦スワイプが主か横スワイプが主かで感度を調整
+    const isVertical = Math.abs(dy) >= Math.abs(dx) * 0.5;
+
+    if (isVertical && dy > 0) { // 上スワイプ = 正回転のみ
+      // 画面高さ / 4 で 1周分
+      const sensitivity = (Math.PI * 2) / (window.innerHeight * 0.25);
+      const delta = dy * sensitivity;
+      this.deltaAngle      = delta;
+      this._touchVY        = dy * sensitivity * 0.8 + this._touchVY * 0.2;
+      this.angularMomentum = this._touchVY;
+    }
+
+    this._touchLastY = t.clientY;
+    this._touchLastX = t.clientX;
   }
 
-  _onTouchEnd(e) {
+  _onTouchEnd() {
     if (this.isDragging) {
-      this.deltaAngle = this.angularMomentum;
+      // フリック慣性：手を離した時の速度を残す
+      this.deltaAngle = Math.max(0, this.angularMomentum * 1.8);
     }
     this.isDragging = false;
   }
 
+  // ─────────────── ホイール ─────────────────────────────────────
+
   _onWheel(e) {
     e.preventDefault();
-    // 正方向のみ（逆回転無効）
-    const d = e.deltaY * 0.004;
+    const d = e.deltaY * 0.005; // 感度を少し上げる
     if (d > 0) this.deltaAngle = d;
   }
 
-  /**
-   * フレームごとに呼ぶ
-   * @returns {number} 右端歯車に加える角速度の変化量
-   */
+  // ─────────────── consume ──────────────────────────────────────
+
   consume() {
     const d = this.deltaAngle;
     if (!this.isDragging) {
-      this.deltaAngle *= 0.85; // ホイールの慣性
+      // 慣性減衰（スワイプ後のフリック）
+      this.deltaAngle *= 0.88;
+      if (Math.abs(this.deltaAngle) < 0.0001) this.deltaAngle = 0;
     } else {
-      this.deltaAngle = 0; // ドラッグ中は消費して次のmousemoveを待つ
+      this.deltaAngle = 0;
     }
     return d;
   }
 
   destroy() {
-    window.removeEventListener('mousedown', this._bound.mousedown);
-    window.removeEventListener('mousemove', this._bound.mousemove);
-    window.removeEventListener('mouseup', this._bound.mouseup);
+    window.removeEventListener('mousedown',  this._bound.mousedown);
+    window.removeEventListener('mousemove',  this._bound.mousemove);
+    window.removeEventListener('mouseup',    this._bound.mouseup);
     window.removeEventListener('touchstart', this._bound.touchstart);
-    window.removeEventListener('touchmove', this._bound.touchmove);
-    window.removeEventListener('touchend', this._bound.touchend);
-    window.removeEventListener('wheel', this._bound.wheel);
+    window.removeEventListener('touchmove',  this._bound.touchmove);
+    window.removeEventListener('touchend',   this._bound.touchend);
+    window.removeEventListener('wheel',      this._bound.wheel);
   }
 }

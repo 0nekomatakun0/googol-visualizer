@@ -14,9 +14,9 @@ class UniverseRenderer {
 
     this.time = 0;
 
-    // ─── 蓄積粒子プール（消えない、密度で見た目変化） ───
-    this.accumParticles = []; // { x,y,vx,vy,hue,r,alpha,age }
-    this.MAX_ACCUM      = 1200;
+    // ─── 蓄積粒子プール（寿命あり、宇宙に溶け込む） ───
+    this.accumParticles = []; // { x,y,vx,vy,hue,r,alpha,life,maxLife }
+    this.MAX_ACCUM      = 400;
 
     // ─── 接触点からの放出パーティクル（短命） ───
     this.contactParticles = []; // { x,y,vx,vy,life,r,hue }
@@ -238,7 +238,7 @@ class UniverseRenderer {
       if (p.life < 0.3 && Math.random() < 0.08 && this.accumParticles.length < this.MAX_ACCUM) {
         this.accumParticles.push({
           x:p.x, y:p.y, vx:p.vx*0.1, vy:p.vy*0.1,
-          hue:p.hue, r:p.r*0.7, alpha:0.4, age:0,
+          hue:p.hue, r:Math.min(p.r*0.7, 0.9), alpha:0.45, life:1.0, maxLife:200+Math.random()*200,
         });
       }
 
@@ -251,74 +251,73 @@ class UniverseRenderer {
   // ─────────────────── 蓄積粒子 ────────────────────────────────
 
   _accumulateParticles(speed, W, H) {
-    // 回転速度に比例して新規追加
-    const spawnCount = Math.floor(speed * 8);
-    for (let i = 0; i < Math.min(spawnCount, 3); i++) {
+    if (speed < 0.0002) return;
+    const spawnCount = Math.min(2, Math.ceil(speed * 5));
+    for (let i = 0; i < spawnCount; i++) {
       if (this.accumParticles.length >= this.MAX_ACCUM) break;
+      const maxLife = 280 + Math.random() * 320; // 寿命（フレーム数）
       this.accumParticles.push({
-        x: Math.random()*W,
-        y: Math.random()*H*0.85,
-        vx: (Math.random()-0.5)*0.08,
-        vy: (Math.random()-0.5)*0.08,
-        hue: Math.random()*60+180, // 青〜紫系
-        r: 0.5+Math.random()*1.5,
-        alpha: 0.15+Math.random()*0.25,
-        age: 0,
+        x: Math.random() * W,
+        y: Math.random() * H * 0.82,
+        vx: (Math.random() - 0.5) * 0.12,
+        vy: (Math.random() - 0.5) * 0.12,
+        hue: Math.random() * 80 + 180, // 青〜紫系
+        r: 0.4 + Math.random() * 1.0,  // 小さめ固定
+        alpha: 0.5 + Math.random() * 0.3,
+        life: 1.0,
+        maxLife,
       });
     }
   }
 
   _drawAccumParticles(ctx, W, H, wind) {
     const density = this.accumDensity;
+    const cx = W * 0.5, cy = H * 0.42;
 
-    for (const p of this.accumParticles) {
-      p.age++;
-      // 風（速度依存）で横流れ
-      p.x += p.vx - wind * 0.4;
+    for (let i = this.accumParticles.length - 1; i >= 0; i--) {
+      const p = this.accumParticles[i];
+
+      // 寿命を減らす → 宇宙に溶け込む
+      p.life -= 1 / p.maxLife;
+      if (p.life <= 0) { this.accumParticles.splice(i, 1); continue; }
+
+      // 移動（風 + 渦引力）
+      p.x += p.vx - wind * 0.3;
       p.y += p.vy;
+
+      // 高密度時だけ中心引力（渦）
+      if (density > 0.5) {
+        const dx = cx - p.x, dy = cy - p.y;
+        const dist = Math.sqrt(dx*dx + dy*dy) + 1;
+        const pull = 0.003 * (density - 0.5);
+        p.vx += dx/dist*pull - dy/dist*0.002;
+        p.vy += dy/dist*pull + dx/dist*0.002;
+      }
+      p.vx *= 0.995; p.vy *= 0.995;
+
+      // 画面端ループ（上下はラップしない）
       if (p.x < 0) p.x += W;
       if (p.x > W) p.x -= W;
-      if (p.y < 0 || p.y > H) { p.y = Math.random()*H*0.85; p.x=Math.random()*W; }
-    }
 
-    if (this.accumParticles.length === 0) return;
+      // 透明度 = alpha × life（末期はフェードアウト）
+      // lifeが0.2以下でゆっくり消える
+      const fadeAlpha = p.life < 0.25 ? p.alpha * (p.life / 0.25) : p.alpha;
 
-    // ─── 低密度：点として描画 ───
-    if (density < 0.35) {
-      for (const p of this.accumParticles) {
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-        ctx.fillStyle=`hsla(${p.hue},70%,65%,${p.alpha*0.6})`;
-        ctx.fill();
-      }
-    }
-    // ─── 中密度：まとまり（グループグロー） ───
-    else if (density < 0.7) {
-      for (const p of this.accumParticles) {
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.r*1.5,0,Math.PI*2);
-        ctx.fillStyle=`hsla(${p.hue},75%,60%,${p.alpha*0.5})`;
-        ctx.fill();
-        // グロー
-        const gw=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*4);
-        gw.addColorStop(0,`hsla(${p.hue},80%,60%,${p.alpha*0.2})`);
-        gw.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle=gw; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*4,0,Math.PI*2); ctx.fill();
-      }
-    }
-    // ─── 高密度：渦 ───
-    else {
-      // 中心への引力で渦を形成
-      const cx=W*0.5, cy=H*0.42;
-      for (const p of this.accumParticles) {
-        const dx=cx-p.x, dy=cy-p.y;
-        const dist=Math.sqrt(dx*dx+dy*dy)+1;
-        const pull=0.005*(density-0.7);
-        p.vx += dx/dist*pull - dy/dist*0.003;
-        p.vy += dy/dist*pull + dx/dist*0.003;
-        p.vx *= 0.99; p.vy *= 0.99;
+      if (fadeAlpha < 0.01) continue;
 
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-        ctx.fillStyle=`hsla(${p.hue},85%,70%,${p.alpha*0.7})`;
-        ctx.fill();
+      // サイズは変えない（r固定）
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue},72%,65%,${fadeAlpha * 0.65})`;
+      ctx.fill();
+
+      // 中〜高密度のみグロー（控えめ）
+      if (density > 0.3 && fadeAlpha > 0.2) {
+        const gw = ctx.createRadialGradient(p.x,p.y,0, p.x,p.y,p.r*3.5);
+        gw.addColorStop(0, `hsla(${p.hue},80%,60%,${fadeAlpha*0.12})`);
+        gw.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gw;
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r*3.5,0,Math.PI*2); ctx.fill();
       }
     }
   }
