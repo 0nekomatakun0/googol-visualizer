@@ -15,16 +15,20 @@
   const milestoneMsg   = document.getElementById('milestone-msg');
   const goalScreen     = document.getElementById('goal-screen');
 
+  // ─── AssetLoader（最初に起動、音声はAC確定後に再ロード） ───
+  const assetLoader = new AssetLoader();
+  assetLoader.load(); // 画像だけ先にロード（音声はAC確定後）
+
   // ─── モジュール ───
   const gears = [];
   for (let i = 0; i < GEAR_COUNT; i++) gears.push(new Gear(i, GEAR_COUNT));
 
   const timeCtrl         = new TimeController(GEAR_COUNT);
   const universeRenderer = new UniverseRenderer(universeCanvas);
-  const gearRenderer     = new GearRenderer(gearCanvas);
+  const gearRenderer     = new GearRenderer(gearCanvas, assetLoader);
   const counterRenderer  = new CounterRenderer(counterCanvas);
   const inputCtrl        = new InputController();
-  const audioCtrl        = new AudioController();
+  const audioCtrl        = new AudioController(assetLoader);
 
   // ─── 慣性係数 ───
   const INERTIA = [];
@@ -58,25 +62,18 @@
     universeRenderer.triggerMilestone(ms);
     audioCtrl.playMilestoneChime(ms.power);
 
-    const [r, g, b] = ms.color;
+    const [r,g,b] = ms.color;
     eventFlash.style.background =
       `radial-gradient(ellipse at 50% 45%, rgba(${r},${g},${b},0.25) 0%, transparent 65%)`;
     eventFlash.classList.add('active');
-
     milestoneMsg.querySelector('.title').textContent = ms.title;
     milestoneMsg.querySelector('.sub').textContent   = ms.sub;
     milestoneMsg.classList.add('active');
-
     clearTimeout(milestoneMsg._t);
     milestoneMsg._t = setTimeout(function() {
       eventFlash.classList.remove('active');
       milestoneMsg.classList.remove('active');
-    }, 4000);
-  };
-
-  // ─── アンビエント ───
-  timeCtrl.onAmbient = function(phase) {
-    universeRenderer.setAmbient(phase);
+    }, 4200);
   };
 
   // ─── カーソル ───
@@ -101,22 +98,17 @@
     goalFired = true;
     goalScreen.classList.add('active');
     audioCtrl.playGoalFanfare();
-    universeRenderer.triggerMilestone({ color: [220, 200, 120], power: 9 });
+    universeRenderer.triggerMilestone({ color:[220,200,120], power:9 });
   }
 
   // ─── 流れ星スケジューラ ───
-  let nextShootingStarTime = Date.now() + 6000 + Math.random() * 8000;
+  let nextStarTime = Date.now() + 7000 + Math.random() * 10000;
+  function schedStar() { nextStarTime = Date.now() + 5000 + Math.random() * 14000; }
 
-  function scheduleShootingStar() {
-    nextShootingStarTime = Date.now() + 5000 + Math.random() * 12000;
-  }
-
-  // ─── 歯車クリック音のタイミング管理 ───
-  // 右端歯車が1歯分回るたびにクリック
+  // ─── クリック音タイミング ───
   let prevRightAngle = 0;
   let clickAccum = 0;
-  const TEETH = 16; // 右端の歯数（GearRenderer依存しない近似値）
-  const CLICK_INTERVAL = (Math.PI * 2) / TEETH;
+  const CLICK_INTERVAL = (Math.PI * 2) / 16;
 
   // ─── 状態 ───
   let frameCount  = 0;
@@ -132,22 +124,19 @@
     let inputDelta = inputCtrl.consume();
     if (inputDelta < 0) inputDelta = 0;
 
-    if (inputDelta > 0.0005) {
-      if (!firstInput) {
-        firstInput = true;
-        hideTutorial();
-        audioCtrl.init();
-        audioInited = true;
-      }
+    if (inputDelta > 0.0005 && !firstInput) {
+      firstInput = true;
+      hideTutorial();
+      audioCtrl.init().then(function() { audioInited = true; });
     }
 
     // 右端に入力
-    velocities[GEAR_COUNT - 1] += inputDelta * 0.7;
-    if (velocities[GEAR_COUNT - 1] < 0) velocities[GEAR_COUNT - 1] = 0;
+    velocities[GEAR_COUNT-1] += inputDelta * 0.7;
+    if (velocities[GEAR_COUNT-1] < 0) velocities[GEAR_COUNT-1] = 0;
 
     // 右→左伝播
-    for (let i = GEAR_COUNT - 2; i >= 0; i--) {
-      const target = velocities[i + 1] * 0.1;
+    for (let i = GEAR_COUNT-2; i >= 0; i--) {
+      const target = velocities[i+1] * 0.1;
       const follow = 0.025 + (i / GEAR_COUNT) * 0.015;
       velocities[i] += (target - velocities[i]) * follow;
       if (velocities[i] < 0) velocities[i] = 0;
@@ -156,56 +145,56 @@
     // 慣性減衰・角度更新
     for (let i = 0; i < GEAR_COUNT; i++) {
       velocities[i] *= INERTIA[i];
-      const tremor = Math.sin(frameCount * 0.038 + i * 1.9)
-                   * (1 - i / (GEAR_COUNT - 1)) * 0.00006;
+      const tremor = Math.sin(frameCount*0.038 + i*1.9)
+                   * (1 - i/(GEAR_COUNT-1)) * 0.00006;
       gears[i].angularVelocity = velocities[i];
       gears[i].angle += velocities[i] + tremor;
     }
 
-    // ─── カウント（右端基準の連鎖） ───
-    const rightRot = gears[GEAR_COUNT - 1].angle / (Math.PI * 2);
+    // ─── カウント ───
+    const rightRot = gears[GEAR_COUNT-1].angle / (Math.PI*2);
     for (let i = 0; i < GEAR_COUNT; i++) {
-      const power = GEAR_COUNT - 1 - i;
-      gears[i].rotationCount = Math.floor(rightRot / Math.pow(10, power)) % 10;
+      gears[i].rotationCount = Math.floor(rightRot / Math.pow(10, GEAR_COUNT-1-i)) % 10;
     }
 
     // ─── TimeController ───
-    const leftLogicalRad = (rightRot / Math.pow(10, GEAR_COUNT - 1)) * (Math.PI * 2);
-    timeCtrl.update(rightRot, leftLogicalRad);
+    const leftLogRad = (rightRot / Math.pow(10, GEAR_COUNT-1)) * (Math.PI*2);
+    timeCtrl.update(rightRot, leftLogRad);
 
-    // ─── 完走チェック（左端が1周） ───
-    if (!goalFired && gears[0].rotationCount >= 1 && rightRot >= Math.pow(10, GEAR_COUNT - 1)) {
-      fireGoal();
-    }
+    // ─── 完走チェック ───
+    if (!goalFired && rightRot >= Math.pow(10, GEAR_COUNT-1)) fireGoal();
 
     // ─── 流れ星 ───
-    if (Date.now() >= nextShootingStarTime) {
+    if (Date.now() >= nextStarTime) {
       universeRenderer.triggerShootingStar();
       if (audioInited) audioCtrl.playShootingStar();
-      scheduleShootingStar();
+      schedStar();
     }
 
     // ─── 歯車クリック音 ───
     if (audioInited) {
-      const rightGearAngle = gears[GEAR_COUNT - 1].angle;
-      const angleDiff = rightGearAngle - prevRightAngle;
-      clickAccum += angleDiff;
-      prevRightAngle = rightGearAngle;
+      const diff = gears[GEAR_COUNT-1].angle - prevRightAngle;
+      clickAccum += diff;
+      prevRightAngle = gears[GEAR_COUNT-1].angle;
       while (clickAccum >= CLICK_INTERVAL) {
         clickAccum -= CLICK_INTERVAL;
-        const pitch = 0.6 + velocities[GEAR_COUNT - 1] * 8;
-        audioCtrl.playClick(pitch);
+        audioCtrl.playClick(0.6 + velocities[GEAR_COUNT-1] * 8);
       }
     }
 
     // ─── 音声更新 ───
     if (audioInited) {
-      audioCtrl.update(Math.abs(velocities[GEAR_COUNT - 1]), timeCtrl.currentPhaseIndex);
+      audioCtrl.update(Math.abs(velocities[GEAR_COUNT-1]), timeCtrl.currentPhaseIndex);
     }
 
     // ─── 描画 ───
-    universeRenderer.render(timeCtrl, velocities[GEAR_COUNT - 1]);
-    gearRenderer.render(gears, frameCount, timeCtrl);
+    universeRenderer.render(
+      timeCtrl,
+      velocities[GEAR_COUNT-1],
+      rightRot,
+      gearRenderer.contactPoints
+    );
+    gearRenderer.render(gears, frameCount, rightRot);
     counterRenderer.render(gears, gearRenderer.gearLayouts);
   }
 

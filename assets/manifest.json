@@ -1,0 +1,15 @@
+{
+  "_comment": "アセット差し替えマニフェスト。ファイルを置いてパスを記入するだけで差し替え可能。nullにすると合成音/デフォルト描画にフォールバックします。",
+
+  "audio": {
+    "bgm":           null,
+    "se_gear_click": null,
+    "se_shooting_star": null,
+    "se_milestone":  null,
+    "se_goal":       null
+  },
+
+  "images": {
+    "gear_texture":  null
+  }
+}

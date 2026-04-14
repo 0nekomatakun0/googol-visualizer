@@ -1,52 +1,40 @@
 /**
- * UniverseRenderer — 宇宙背景の描画
+ * UniverseRenderer — 歯車の回転で宇宙が生まれる設計
  *
- * ambientPhase:
- *   0 = 通常宇宙
- *   1 = 黄昏（オレンジ〜赤）
- *   2 = 深夜（深い青）
- *   3 = 雨
- *   4 = オーロラ
- *   5 = 夜明け
- *
- * マイルストーン演出: triggerMilestone(ms) で呼ぶ
+ * ミクロ: 接触点パーティクル、発光
+ * メゾ:  粒子蓄積→密度→渦
+ * マクロ: マイルストーンリング+フラッシュ
+ * アンビエント: 密度/速度/エネルギー依存（時間ベース廃止）
  */
 class UniverseRenderer {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+    this.ctx    = canvas.getContext('2d');
     this.resize();
 
     this.time = 0;
-    this.lastPhaseIndex = -1;
 
-    // 星・パーティクル・星雲
+    // ─── 蓄積粒子プール（消えない、密度で見た目変化） ───
+    this.accumParticles = []; // { x,y,vx,vy,hue,r,alpha,age }
+    this.MAX_ACCUM      = 1200;
+
+    // ─── 接触点からの放出パーティクル（短命） ───
+    this.contactParticles = []; // { x,y,vx,vy,life,r,hue }
+
+    // ─── 星 ───
     this.stars = [];
-    this.particles = [];
-    this.nebulae = [];
-    this.events = [];
+    this._initStars();
 
-    // アンビエント
-    this.ambientPhase = 0;
-    this.ambientBlend = 0;   // 0→1 トランジション進行度
-    this.ambientTarget = 0;
-
-    // 雨
-    this.rainDrops = [];
-
-    // オーロラ
-    this.auroraWaves = [];
-
-    // マイルストーン
-    this.milestoneQueue = []; // { timer, color, rings }
-
-    // 流れ星
+    // ─── 流れ星 ───
     this.shootingStars = [];
 
-    this._initStars();
-    this._initParticles();
-    this._initNebulae();
-    this._initAurora();
+    // ─── マイルストーンエフェクト ───
+    this.milestoneQueue = [];
+
+    // ─── 状態（回転ベース） ───
+    this.totalEnergy    = 0;   // 右端累積回転数ベース（0〜∞）
+    this.currentSpeed   = 0;   // 右端角速度
+    this.accumDensity   = 0;   // 0〜1（蓄積粒子密度）
   }
 
   resize() {
@@ -54,513 +42,403 @@ class UniverseRenderer {
     this.H = this.canvas.height = window.innerHeight;
   }
 
-  // ─────────────────────────── init ────────────────────────────
-
   _initStars() {
     this.stars = [];
-    for (let i = 0; i < 700; i++) {
+    for (let i = 0; i < 650; i++) {
       this.stars.push({
         x: Math.random() * this.W,
         y: Math.random() * this.H,
-        r: Math.random() * 1.6 + 0.2,
+        r: Math.random() * 1.5 + 0.2,
         brightness: Math.random(),
         twinklePhase: Math.random() * Math.PI * 2,
-        twinkleSpeed: 0.008 + Math.random() * 0.025,
-        born: Math.random() * 15,
-        type: Math.floor(Math.random() * 3), // 0=白,1=青,2=橙
+        twinkleSpeed: 0.007 + Math.random() * 0.022,
+        type: Math.floor(Math.random() * 3),
+        bornAt: Math.random() * 500, // totalEnergyがこれを超えたら表示
       });
     }
   }
 
-  _initParticles() {
-    this.particles = [];
-    for (let i = 0; i < 150; i++) this._spawnParticle(true);
-  }
-
-  _initNebulae() {
-    this.nebulae = [];
-    for (let i = 0; i < 5; i++) {
-      this.nebulae.push({
-        x: Math.random() * this.W,
-        y: Math.random() * this.H * 0.75,
-        rx: 100 + Math.random() * 220,
-        ry: 50 + Math.random() * 130,
-        hue: Math.random() * 360,
-        alpha: 0,
-        targetAlpha: 0.05 + Math.random() * 0.09,
-        rotation: Math.random() * Math.PI,
-      });
-    }
-  }
-
-  _initAurora() {
-    this.auroraWaves = [];
-    for (let i = 0; i < 5; i++) {
-      this.auroraWaves.push({
-        phase: Math.random() * Math.PI * 2,
-        speed: 0.005 + Math.random() * 0.008,
-        hue: 120 + Math.random() * 140,
-        yBase: 0.15 + Math.random() * 0.3,
-        amp: 0.04 + Math.random() * 0.08,
-      });
-    }
-  }
-
-  // ─────────────────────────── public API ────────────────────────
+  // ─────────────────── public API ────────────────────────────
 
   triggerShootingStar() {
-    const W = this.W, H = this.H;
-    const angle = (Math.random() * 0.4 + 0.1) * Math.PI; // 斜め下方向
-    const speed = 8 + Math.random() * 12;
+    const W=this.W, H=this.H;
+    const spd = 9 + Math.random() * 13;
+    const ang  = (0.1 + Math.random()*0.4) * Math.PI;
     this.shootingStars.push({
-      x: Math.random() * W * 0.8 + W * 0.1,
-      y: Math.random() * H * 0.35,
-      vx:  Math.cos(angle) * speed,
-      vy:  Math.sin(angle) * speed,
-      len: 60 + Math.random() * 120,
-      life: 1,
-      decay: 0.022 + Math.random() * 0.015,
+      x: Math.random()*W*0.8+W*0.1,
+      y: Math.random()*H*0.3,
+      vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd,
+      len: 55+Math.random()*110,
+      life: 1, decay: 0.02+Math.random()*0.015,
     });
   }
 
-  setAmbient(phase) {
-    this.ambientTarget = phase;
-    this.ambientBlend  = 0;
+  triggerMilestone(ms) {
+    const [cr,cg,cb] = ms.color;
+    this.milestoneQueue.push({
+      timer: 260, maxTimer: 260,
+      color: `${cr},${cg},${cb}`,
+      rings: [0, 30, 60].map(d => ({ delay: d })),
+    });
+    // パーティクルバースト
+    const count = 6 + (ms.power || 3) * 2;
+    for (let i = 0; i < count; i++) {
+      setTimeout(() => this._burstParticles(this.W/2, this.H*0.42, cr, cg, cb), i*120);
+    }
   }
 
-  triggerStarBirth() {
-    this.events.push({
-      x: Math.random() * this.W,
-      y: Math.random() * this.H * 0.8,
-      life: 1, r: 1,
-      maxR: 30 + Math.random() * 70,
-    });
+  _burstParticles(cx, cy, r=200, g=180, b=100) {
+    for (let i = 0; i < 18; i++) {
+      const ang = Math.random()*Math.PI*2;
+      const spd = 1.5 + Math.random()*3;
+      this.contactParticles.push({
+        x:cx, y:cy,
+        vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd,
+        life:1, decay:0.012+Math.random()*0.01,
+        r:1.5+Math.random()*2,
+        hue: Math.atan2(g-128, r-128)*180/Math.PI,
+      });
+    }
   }
+
+  // ─────────────────── メインレンダ ──────────────────────────
 
   /**
-   * マイルストーン演出
-   * @param {{ color: number[], power: number }} ms
+   * @param {TimeController} timeCtrl
+   * @param {number} masterSpeed     右端角速度
+   * @param {number} totalRightRot   右端累積回転数
+   * @param {Array}  contactPoints   GearRenderer.contactPoints
    */
-  triggerMilestone(ms) {
-    const [cr, cg, cb] = ms.color;
-    // 複数リング
-    const rings = [];
-    for (let i = 0; i < 3; i++) {
-      rings.push({ delay: i * 25, born: false });
-    }
-    this.milestoneQueue.push({
-      timer: 240,
-      color: `${cr},${cg},${cb}`,
-      rings,
-    });
-    // 星誕生バースト
-    const count = 4 + ms.power;
-    for (let i = 0; i < count; i++) {
-      setTimeout(() => this.triggerStarBirth(), i * 150);
-    }
-  }
-
-  // ─────────────────────────── main render ─────────────────────
-
-  render(timeCtrl, masterSpeed) {
+  render(timeCtrl, masterSpeed, totalRightRot, contactPoints) {
     this.time++;
-    const ctx  = this.ctx;
-    const W = this.W, H = this.H;
-    const phase    = timeCtrl.currentPhaseIndex;
-    const progress = timeCtrl.phaseProgress;
-    const normTime = timeCtrl.getNormalizedTime();
-    const cosmicTime = timeCtrl.cosmicTime;
+    const ctx = this.ctx;
+    const W=this.W, H=this.H;
     const speed = Math.abs(masterSpeed);
-    const ambient = timeCtrl.ambientPhase;
 
-    // アンビエントブレンド更新
-    if (this.ambientTarget !== this.ambientPhase) {
-      this.ambientBlend += 0.005;
-      if (this.ambientBlend >= 1) {
-        this.ambientBlend  = 0;
-        this.ambientPhase  = this.ambientTarget;
-      }
-    }
+    // 状態更新
+    this.totalEnergy  = totalRightRot;
+    this.currentSpeed = speed;
+    this.accumDensity = Math.min(1, this.accumParticles.length / this.MAX_ACCUM);
 
-    // フェーズ変化
-    if (phase !== this.lastPhaseIndex) {
-      if (phase >= 2) this.triggerStarBirth();
-      this.lastPhaseIndex = phase;
-    }
-    if (phase >= 2 && Math.random() < 0.002 + speed * 0.01) {
-      this.triggerStarBirth();
-    }
+    // アンビエント計算（回転ベース）
+    const fog     = Math.min(0.6, this.accumDensity * 0.7);          // 密度→霧
+    const wind    = Math.min(1, speed * 20);                          // 速度→風
+    const aurora  = Math.min(1, this.totalEnergy / 50000);            // 高エネルギー→オーロラ
+    const rain    = this.accumDensity > 0.5 && speed > 0.01           // 高密度+高速→雨
+                    ? Math.min(1, (this.accumDensity - 0.5)*2) : 0;
+
+    // 接触点から粒子放出
+    this._emitContactParticles(contactPoints, speed);
+
+    // 蓄積粒子を追加（回転速度に比例）
+    this._accumulateParticles(speed, W, H);
 
     // ─── 描画 ───
-    this._drawBackground(ctx, W, H, phase, progress, ambient, timeCtrl.ambientBlend || this.ambientBlend);
-    this._drawNebulae(ctx, phase, normTime);
-    this._drawStars(ctx, cosmicTime, normTime, speed, ambient);
-
-    // アンビエント別レイヤー
-    if (ambient === 3 || this.ambientTarget === 3) this._drawRain(ctx, W, H, this.ambientBlend);
-    if (ambient === 4 || this.ambientTarget === 4) this._drawAurora(ctx, W, H, this.ambientBlend);
-    if (ambient === 5) this._drawDawn(ctx, W, H);
-
-    this._drawParticles(ctx, speed, W, H);
-    this._drawEvents(ctx);
+    this._drawBackground(ctx, W, H, fog, aurora);
+    this._drawAccumParticles(ctx, W, H, wind);
+    if (aurora > 0.05) this._drawAurora(ctx, W, H, aurora);
+    if (rain > 0.05)   this._drawRain(ctx, W, H, rain);
+    this._drawStars(ctx, W, H, speed);
+    this._drawContactParticles(ctx);
     this._drawShootingStars(ctx);
-
-    if (phase === 0) this._drawBigBang(ctx, W, H, cosmicTime, speed);
-    if (phase >= 5)  this._drawEarth(ctx, W, H, normTime, ambient);
-    if (phase >= 7)  this._drawHumanity(ctx, W, H, normTime);
-
     this._drawMilestones(ctx, W, H);
+
+    // 宇宙フェーズ描画（地球など）
+    const phase    = timeCtrl.currentPhaseIndex;
+    const normTime = timeCtrl.getNormalizedTime();
+    if (phase >= 5) this._drawEarth(ctx, W, H, normTime, rain);
+    if (phase >= 7) this._drawHumanity(ctx, W, H, normTime);
   }
 
-  // ─────────────────────────── background ─────────────────────
+  // ─────────────────── 背景 ──────────────────────────────────
 
-  _drawBackground(ctx, W, H, phase, progress, ambient, blend) {
-    // 宇宙フェーズ色
-    const cosmicColors = [
-      [255,240,220],[180,100,40],[20,20,60],
-      [8,8,40],[4,6,20],[2,4,16],[1,3,8],[0,1,3],
-    ];
-    const c0 = cosmicColors[Math.min(phase, cosmicColors.length-1)];
-    const c1 = cosmicColors[Math.min(phase+1, cosmicColors.length-1)];
-    const t  = progress;
-    let r = c0[0]+(c1[0]-c0[0])*t;
-    let g = c0[1]+(c1[1]-c0[1])*t;
-    let b = c0[2]+(c1[2]-c0[2])*t;
+  _drawBackground(ctx, W, H, fog, aurora) {
+    // 基本は黒〜深宇宙
+    const density = this.accumDensity;
+    const energy  = Math.min(1, this.totalEnergy / 100);
 
-    // アンビエントオーバーレイ色
-    const ambColors = [
-      null,
-      [40,20,10],   // 1=黄昏
-      [2,4,18],     // 2=深夜
-      [5,8,20],     // 3=雨
-      [5,15,20],    // 4=オーロラ
-      [30,18,10],   // 5=夜明け
-    ];
-    const ac = ambColors[ambient];
-    if (ac && blend > 0) {
-      r = r*(1-blend) + ac[0]*blend;
-      g = g*(1-blend) + ac[1]*blend;
-      b = b*(1-blend) + ac[2]*blend;
-    }
+    // 蓄積に応じて宇宙色が深まる
+    const br = (energy * 12)|0;
+    const bg_val = `rgb(${br},${br},${Math.min(40, br+8)})`;
 
-    const grad = ctx.createRadialGradient(W/2,H*0.4,0, W/2,H*0.4,W*0.85);
-    grad.addColorStop(0, `rgb(${r|0},${g|0},${b|0})`);
-    grad.addColorStop(1, `rgb(0,0,0)`);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0,0,W,H);
+    // 放射グラデ
+    const grad = ctx.createRadialGradient(W/2, H*0.38, 0, W/2, H*0.38, W*0.9);
+    grad.addColorStop(0, bg_val);
+    grad.addColorStop(1, 'rgb(0,0,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
 
-    // 黄昏: 地平線グロー
-    if (ambient === 1) {
-      const hg = ctx.createLinearGradient(0,H*0.6,0,H);
-      hg.addColorStop(0,`rgba(180,80,20,${0.25*blend})`);
-      hg.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle = hg; ctx.fillRect(0,H*0.6,W,H*0.4);
+    // 霧（蓄積密度）
+    if (fog > 0.02) {
+      ctx.fillStyle = `rgba(15,18,35,${fog * 0.35})`;
+      ctx.fillRect(0,0,W,H);
     }
 
     // ビネット
-    const vig = ctx.createRadialGradient(W/2,H/2,H*0.3, W/2,H/2,H*0.95);
+    const vig = ctx.createRadialGradient(W/2,H/2,H*0.28, W/2,H/2,H*1.0);
     vig.addColorStop(0,'rgba(0,0,0,0)');
-    vig.addColorStop(1,'rgba(0,0,0,0.75)');
-    ctx.fillStyle = vig;
-    ctx.fillRect(0,0,W,H);
+    vig.addColorStop(1,'rgba(0,0,0,0.72)');
+    ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
   }
 
-  // ─────────────────────────── rain ─────────────────────────────
+  // ─────────────────── 星 ────────────────────────────────────
 
-  _drawRain(ctx, W, H, blend) {
-    // スポーン
-    while (this.rainDrops.length < 200 * blend) {
-      this.rainDrops.push({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        len: 8 + Math.random() * 14,
-        speed: 6 + Math.random() * 8,
-        alpha: 0.08 + Math.random() * 0.12,
+  _drawStars(ctx, W, H, speed) {
+    const energy = this.totalEnergy;
+    for (const s of this.stars) {
+      if (energy < s.bornAt) continue;
+      s.twinklePhase += s.twinkleSpeed;
+      const tw  = 0.4 + 0.6*Math.sin(s.twinklePhase);
+      const born= Math.min(1, (energy - s.bornAt) / 50);
+      const al  = s.brightness * tw * born;
+      const cs  = ['rgba(255,255,255,','rgba(150,170,255,','rgba(255,200,120,'];
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r*(1+speed*0.4), 0, Math.PI*2);
+      ctx.fillStyle = cs[s.type] + al + ')'; ctx.fill();
+      if (s.brightness > 0.78) {
+        const gw = ctx.createRadialGradient(s.x,s.y,0, s.x,s.y,s.r*5);
+        gw.addColorStop(0, cs[s.type]+al*0.6+')');
+        gw.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=gw; ctx.beginPath(); ctx.arc(s.x,s.y,s.r*5,0,Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
+  // ─────────────────── 接触点パーティクル ──────────────────────
+
+  _emitContactParticles(contactPoints, speed) {
+    if (!contactPoints || speed < 0.0003) return;
+    for (const cp of contactPoints) {
+      const count = Math.ceil(speed * 40);
+      for (let i = 0; i < Math.min(count, 4); i++) {
+        const ang = -Math.PI*0.6 + (Math.random()-0.5)*1.2; // 左上方向に飛ぶ
+        const spd = 0.5 + Math.random()*2 + speed*15;
+        this.contactParticles.push({
+          x: cp.x + (Math.random()-0.5)*6,
+          y: cp.y + (Math.random()-0.5)*6,
+          vx: Math.cos(ang)*spd,
+          vy: Math.sin(ang)*spd - 0.3,
+          life: 1,
+          decay: 0.018 + Math.random()*0.025,
+          r: 0.8 + Math.random()*1.8,
+          hue: 30 + Math.random()*40,
+        });
+      }
+    }
+  }
+
+  _drawContactParticles(ctx) {
+    for (let i = this.contactParticles.length-1; i >= 0; i--) {
+      const p = this.contactParticles[i];
+      p.life -= p.decay;
+      if (p.life <= 0) { this.contactParticles.splice(i,1); continue; }
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.96; p.vy = p.vy*0.96 - 0.04;
+
+      // 一部は蓄積粒子に昇格
+      if (p.life < 0.3 && Math.random() < 0.08 && this.accumParticles.length < this.MAX_ACCUM) {
+        this.accumParticles.push({
+          x:p.x, y:p.y, vx:p.vx*0.1, vy:p.vy*0.1,
+          hue:p.hue, r:p.r*0.7, alpha:0.4, age:0,
+        });
+      }
+
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle=`hsla(${p.hue},85%,68%,${p.life*0.8})`;
+      ctx.fill();
+    }
+  }
+
+  // ─────────────────── 蓄積粒子 ────────────────────────────────
+
+  _accumulateParticles(speed, W, H) {
+    // 回転速度に比例して新規追加
+    const spawnCount = Math.floor(speed * 8);
+    for (let i = 0; i < Math.min(spawnCount, 3); i++) {
+      if (this.accumParticles.length >= this.MAX_ACCUM) break;
+      this.accumParticles.push({
+        x: Math.random()*W,
+        y: Math.random()*H*0.85,
+        vx: (Math.random()-0.5)*0.08,
+        vy: (Math.random()-0.5)*0.08,
+        hue: Math.random()*60+180, // 青〜紫系
+        r: 0.5+Math.random()*1.5,
+        alpha: 0.15+Math.random()*0.25,
+        age: 0,
       });
     }
-    ctx.save();
-    ctx.strokeStyle = `rgba(150,180,220,${0.18*blend})`;
-    ctx.lineWidth = 0.6;
-    for (const d of this.rainDrops) {
-      d.y += d.speed;
-      d.x -= d.speed * 0.15;
-      if (d.y > H) { d.y = -d.len; d.x = Math.random() * W; }
-      ctx.globalAlpha = d.alpha * blend;
-      ctx.beginPath();
-      ctx.moveTo(d.x, d.y);
-      ctx.lineTo(d.x - d.len*0.15, d.y + d.len);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    ctx.restore();
-
-    // 霧レイヤー
-    const fog = ctx.createLinearGradient(0,0,0,H);
-    fog.addColorStop(0,'rgba(30,40,60,0)');
-    fog.addColorStop(1,`rgba(30,40,60,${0.2*blend})`);
-    ctx.fillStyle = fog; ctx.fillRect(0,0,W,H);
   }
 
-  // ─────────────────────────── aurora ──────────────────────────
+  _drawAccumParticles(ctx, W, H, wind) {
+    const density = this.accumDensity;
 
-  _drawAurora(ctx, W, H, blend) {
+    for (const p of this.accumParticles) {
+      p.age++;
+      // 風（速度依存）で横流れ
+      p.x += p.vx - wind * 0.4;
+      p.y += p.vy;
+      if (p.x < 0) p.x += W;
+      if (p.x > W) p.x -= W;
+      if (p.y < 0 || p.y > H) { p.y = Math.random()*H*0.85; p.x=Math.random()*W; }
+    }
+
+    if (this.accumParticles.length === 0) return;
+
+    // ─── 低密度：点として描画 ───
+    if (density < 0.35) {
+      for (const p of this.accumParticles) {
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+        ctx.fillStyle=`hsla(${p.hue},70%,65%,${p.alpha*0.6})`;
+        ctx.fill();
+      }
+    }
+    // ─── 中密度：まとまり（グループグロー） ───
+    else if (density < 0.7) {
+      for (const p of this.accumParticles) {
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r*1.5,0,Math.PI*2);
+        ctx.fillStyle=`hsla(${p.hue},75%,60%,${p.alpha*0.5})`;
+        ctx.fill();
+        // グロー
+        const gw=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*4);
+        gw.addColorStop(0,`hsla(${p.hue},80%,60%,${p.alpha*0.2})`);
+        gw.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=gw; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*4,0,Math.PI*2); ctx.fill();
+      }
+    }
+    // ─── 高密度：渦 ───
+    else {
+      // 中心への引力で渦を形成
+      const cx=W*0.5, cy=H*0.42;
+      for (const p of this.accumParticles) {
+        const dx=cx-p.x, dy=cy-p.y;
+        const dist=Math.sqrt(dx*dx+dy*dy)+1;
+        const pull=0.005*(density-0.7);
+        p.vx += dx/dist*pull - dy/dist*0.003;
+        p.vy += dy/dist*pull + dx/dist*0.003;
+        p.vx *= 0.99; p.vy *= 0.99;
+
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+        ctx.fillStyle=`hsla(${p.hue},85%,70%,${p.alpha*0.7})`;
+        ctx.fill();
+      }
+    }
+  }
+
+  // ─────────────────── オーロラ ───────────────────────────────
+
+  _drawAurora(ctx, W, H, intensity) {
+    const t = this.time;
     ctx.save();
-    for (const wave of this.auroraWaves) {
-      wave.phase += wave.speed;
-      ctx.beginPath();
-      ctx.moveTo(0, H * wave.yBase);
-      for (let x = 0; x <= W; x += 8) {
-        const y = H * (wave.yBase + Math.sin(x * 0.006 + wave.phase) * wave.amp
-                                  + Math.sin(x * 0.003 + wave.phase*1.3) * wave.amp*0.5);
-        ctx.lineTo(x, y);
+    const waves = [
+      { ph:t*0.004,   hue:140, yb:0.12, amp:0.07 },
+      { ph:t*0.006+1, hue:180, yb:0.18, amp:0.05 },
+      { ph:t*0.005+2, hue:200, yb:0.22, amp:0.06 },
+    ];
+    for (const w of waves) {
+      ctx.beginPath(); ctx.moveTo(0,H*w.yb);
+      for (let x=0; x<=W; x+=8) {
+        const y=H*(w.yb+Math.sin(x*0.005+w.ph)*w.amp+Math.sin(x*0.003+w.ph*1.4)*w.amp*0.4);
+        ctx.lineTo(x,y);
       }
       ctx.lineTo(W,0); ctx.lineTo(0,0); ctx.closePath();
-      const gr = ctx.createLinearGradient(0,0,0,H*0.5);
+      const gr=ctx.createLinearGradient(0,0,0,H*0.4);
       gr.addColorStop(0,'rgba(0,0,0,0)');
-      gr.addColorStop(0.5,`hsla(${wave.hue},80%,55%,${0.06*blend})`);
+      gr.addColorStop(0.5,`hsla(${w.hue},80%,55%,${0.07*intensity})`);
       gr.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle = gr;
-      ctx.fill();
+      ctx.fillStyle=gr; ctx.fill();
     }
     ctx.restore();
   }
 
-  // ─────────────────────────── dawn ────────────────────────────
+  // ─────────────────── 雨 ──────────────────────────────────────
 
-  _drawDawn(ctx, W, H) {
-    const dawnGrad = ctx.createLinearGradient(0, H*0.5, 0, H);
-    dawnGrad.addColorStop(0,`rgba(200,100,30,0.15)`);
-    dawnGrad.addColorStop(0.4,`rgba(220,140,40,0.08)`);
-    dawnGrad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle = dawnGrad; ctx.fillRect(0,H*0.5,W,H*0.5);
-
-    // 太陽の淡い輪郭
-    const sunX = W*0.5, sunY = H*0.72;
-    const sunGrad = ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,80);
-    sunGrad.addColorStop(0,'rgba(255,200,80,0.2)');
-    sunGrad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle = sunGrad;
-    ctx.beginPath(); ctx.arc(sunX,sunY,80,0,Math.PI*2); ctx.fill();
-  }
-
-  // ─────────────────────────── stars ────────────────────────────
-
-  _drawStars(ctx, cosmicTime, normTime, speed, ambient) {
-    // アンビエント別の星の明るさ係数
-    const ambBrightness = [1, 0.5, 1.2, 0.6, 1.1, 0.4];
-    const brightMult = ambBrightness[Math.min(ambient, ambBrightness.length-1)];
-
-    for (const star of this.stars) {
-      if (cosmicTime < star.born) continue;
-      star.twinklePhase += star.twinkleSpeed;
-      const twinkle = 0.4 + 0.6 * Math.sin(star.twinklePhase);
-      const alpha   = star.brightness * twinkle
-                    * Math.min(1, (cosmicTime - star.born) * 2)
-                    * brightMult;
-      const colors  = [
-        `rgba(255,255,255,${alpha})`,
-        `rgba(150,170,255,${alpha})`,
-        `rgba(255,200,120,${alpha})`,
-      ];
-      ctx.beginPath();
-      ctx.arc(star.x, star.y, star.r*(1+speed*0.4), 0, Math.PI*2);
-      ctx.fillStyle = colors[star.type];
-      ctx.fill();
-
-      if (star.brightness > 0.75) {
-        const glow = ctx.createRadialGradient(star.x,star.y,0, star.x,star.y,star.r*5);
-        glow.addColorStop(0, colors[star.type]);
-        glow.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(star.x,star.y,star.r*5,0,Math.PI*2); ctx.fill();
-      }
+  _drawRain(ctx, W, H, intensity) {
+    if (!this._rainDrops) {
+      this._rainDrops = Array.from({length:180},()=>({
+        x:Math.random()*W, y:Math.random()*H,
+        len:8+Math.random()*14,
+        spd:5+Math.random()*8,
+        al:0.07+Math.random()*0.1,
+      }));
     }
-  }
-
-  // ─────────────────────────── nebulae ─────────────────────────
-
-  _drawNebulae(ctx, phase, normTime) {
-    if (phase < 2) return;
-    const vis = Math.min(1,(normTime-0.15)*5);
     ctx.save();
-    for (const neb of this.nebulae) {
-      neb.alpha += (neb.targetAlpha*vis - neb.alpha)*0.015;
-      if (neb.alpha < 0.001) continue;
-      ctx.save();
-      ctx.translate(neb.x,neb.y);
-      ctx.rotate(neb.rotation + this.time*0.00008);
-      const grad = ctx.createRadialGradient(0,0,0,0,0,neb.rx);
-      grad.addColorStop(0,`hsla(${neb.hue},55%,55%,${neb.alpha})`);
-      grad.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.scale(1, neb.ry/neb.rx);
-      ctx.fillStyle = grad;
-      ctx.beginPath(); ctx.arc(0,0,neb.rx,0,Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-
-  // ─────────────────────────── particles ───────────────────────
-
-  _spawnParticle(random=false) {
-    this.particles.push({
-      x: random ? Math.random()*this.W : this.W/2+(Math.random()-0.5)*30,
-      y: random ? Math.random()*this.H : this.H/2+(Math.random()-0.5)*30,
-      vx: (Math.random()-0.5)*0.25,
-      vy: (Math.random()-0.5)*0.25,
-      life: Math.random(),
-      r: Math.random()*1.8,
-      hue: Math.random()*60+20,
-    });
-  }
-
-  _drawParticles(ctx, speed, W, H) {
-    if (Math.random() < 0.25+speed*2 && this.particles.length < 300) this._spawnParticle();
-    for (let i = this.particles.length-1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.x += p.vx+(Math.random()-0.5)*0.08;
-      p.y += p.vy+(Math.random()-0.5)*0.08;
-      p.life -= 0.0018;
-      if (p.life<=0||p.x<-10||p.x>W+10||p.y<-10||p.y>H+10) {
-        this.particles.splice(i,1); continue;
-      }
+    ctx.strokeStyle=`rgba(140,170,220,${0.2*intensity})`;
+    ctx.lineWidth=0.6;
+    for (const d of this._rainDrops) {
+      d.y+=d.spd; d.x-=d.spd*0.12;
+      if(d.y>H){d.y=-d.len;d.x=Math.random()*W;}
+      ctx.globalAlpha=d.al*intensity;
       ctx.beginPath();
-      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-      ctx.fillStyle=`hsla(${p.hue},75%,65%,${p.life*0.25})`;
-      ctx.fill();
+      ctx.moveTo(d.x,d.y); ctx.lineTo(d.x-d.len*0.12,d.y+d.len);
+      ctx.stroke();
     }
+    ctx.globalAlpha=1; ctx.restore();
   }
 
-  // ─────────────────────────── events ──────────────────────────
-
-  _drawEvents(ctx) {
-    for (let i = this.events.length-1; i >= 0; i--) {
-      const ev = this.events[i];
-      ev.life -= 0.012;
-      if (ev.life<=0) { this.events.splice(i,1); continue; }
-      ev.r = ev.maxR*(1-ev.life);
-      const grad = ctx.createRadialGradient(ev.x,ev.y,0,ev.x,ev.y,ev.r);
-      grad.addColorStop(0,`rgba(255,240,180,${ev.life*0.5})`);
-      grad.addColorStop(0.5,`rgba(100,150,255,${ev.life*0.25})`);
-      grad.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=grad;
-      ctx.beginPath(); ctx.arc(ev.x,ev.y,ev.r,0,Math.PI*2); ctx.fill();
-    }
-  }
-
-  // ─────────────────────────── big bang ────────────────────────
+  // ─────────────────── 流れ星 ──────────────────────────────────
 
   _drawShootingStars(ctx) {
-    for (let i = this.shootingStars.length - 1; i >= 0; i--) {
-      const s = this.shootingStars[i];
-      s.life -= s.decay;
-      if (s.life <= 0) { this.shootingStars.splice(i, 1); continue; }
-
-      s.x += s.vx;
-      s.y += s.vy;
-
-      const tailX = s.x - s.vx * (s.len / Math.sqrt(s.vx*s.vx+s.vy*s.vy));
-      const tailY = s.y - s.vy * (s.len / Math.sqrt(s.vx*s.vx+s.vy*s.vy));
-
-      const grad = ctx.createLinearGradient(tailX, tailY, s.x, s.y);
-      grad.addColorStop(0, `rgba(255,255,255,0)`);
-      grad.addColorStop(0.6, `rgba(200,220,255,${s.life * 0.4})`);
-      grad.addColorStop(1,   `rgba(255,255,255,${s.life * 0.9})`);
-
-      ctx.save();
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = 1.5 * s.life;
-      ctx.beginPath();
-      ctx.moveTo(tailX, tailY);
-      ctx.lineTo(s.x, s.y);
-      ctx.stroke();
-
-      // 先端グロー
-      const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 6);
-      glow.addColorStop(0, `rgba(220,240,255,${s.life * 0.8})`);
-      glow.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, 6, 0, Math.PI * 2);
-      ctx.fill();
-
+    for (let i=this.shootingStars.length-1; i>=0; i--) {
+      const s=this.shootingStars[i];
+      s.life-=s.decay; if(s.life<=0){this.shootingStars.splice(i,1);continue;}
+      s.x+=s.vx; s.y+=s.vy;
+      const mag=Math.sqrt(s.vx*s.vx+s.vy*s.vy);
+      const tx=s.x-s.vx/mag*s.len, ty=s.y-s.vy/mag*s.len;
+      const gr=ctx.createLinearGradient(tx,ty,s.x,s.y);
+      gr.addColorStop(0,'rgba(255,255,255,0)');
+      gr.addColorStop(0.6,`rgba(200,220,255,${s.life*0.45})`);
+      gr.addColorStop(1,`rgba(255,255,255,${s.life*0.9})`);
+      ctx.save(); ctx.strokeStyle=gr; ctx.lineWidth=1.5*s.life;
+      ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(s.x,s.y); ctx.stroke();
+      const gw=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,7);
+      gw.addColorStop(0,`rgba(220,240,255,${s.life*0.8})`);
+      gw.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=gw; ctx.beginPath(); ctx.arc(s.x,s.y,7,0,Math.PI*2); ctx.fill();
       ctx.restore();
     }
   }
 
-  _drawBigBang(ctx, W, H, cosmicTime, speed) {
-    if (cosmicTime >= 0.3) return;
-    const intensity = Math.max(0,1-cosmicTime*5)+speed*0.4;
-    if (intensity < 0.005) return;
-    const grad = ctx.createRadialGradient(W/2,H*0.4,0,W/2,H*0.4,W*0.6);
-    grad.addColorStop(0,`rgba(255,255,255,${Math.min(0.9,intensity)})`);
-    grad.addColorStop(0.3,`rgba(255,200,100,${intensity*0.35})`);
-    grad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
-  }
-
-  // ─────────────────────────── earth ───────────────────────────
-
-  _drawEarth(ctx, W, H, normTime, ambient) {
-    const eX = W*0.5, eY = H*0.35;
-    const eR = 40+(normTime-0.6)*80;
-    if (eR<=0) return;
-    const alpha = Math.min(0.6,(normTime-0.6)*3);
-
-    // アンビエントで色変化
-    let oceanR=80, oceanG=160, oceanB=220;
-    if (ambient===1) { oceanR=200; oceanG=100; oceanB=60; } // 黄昏
-    if (ambient===2) { oceanR=20;  oceanG=30;  oceanB=80; } // 夜
-
-    const grad = ctx.createRadialGradient(eX-eR*0.3,eY-eR*0.3,eR*0.1,eX,eY,eR);
-    grad.addColorStop(0,`rgba(${oceanR},${oceanG},${oceanB},${alpha})`);
-    grad.addColorStop(0.4,`rgba(40,120,60,${alpha*0.8})`);
-    grad.addColorStop(0.8,`rgba(20,60,120,${alpha*0.6})`);
-    grad.addColorStop(1,`rgba(0,0,20,${alpha*0.3})`);
-    ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(eX,eY,eR,0,Math.PI*2); ctx.fill();
-
-    const atmo = ctx.createRadialGradient(eX,eY,eR*0.9,eX,eY,eR*1.2);
-    atmo.addColorStop(0,`rgba(100,180,255,${alpha*0.3})`);
-    atmo.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=atmo; ctx.beginPath(); ctx.arc(eX,eY,eR*1.2,0,Math.PI*2); ctx.fill();
-  }
-
-  // ─────────────────────────── humanity ────────────────────────
-
-  _drawHumanity(ctx, W, H, normTime) {
-    const alpha = Math.min(0.12,(normTime-0.95)*2.4);
-    ctx.beginPath(); ctx.arc(W*0.5+15,H*0.38,2,0,Math.PI*2);
-    ctx.fillStyle=`rgba(255,240,200,${alpha})`; ctx.fill();
-  }
-
-  // ─────────────────────────── milestones ──────────────────────
+  // ─────────────────── マイルストーン ──────────────────────────
 
   _drawMilestones(ctx, W, H) {
-    for (let i = this.milestoneQueue.length-1; i >= 0; i--) {
-      const ms = this.milestoneQueue[i];
+    for (let i=this.milestoneQueue.length-1; i>=0; i--) {
+      const ms=this.milestoneQueue[i];
       ms.timer--;
-      if (ms.timer <= 0) { this.milestoneQueue.splice(i,1); continue; }
-
-      const t = ms.timer / 240; // 1→0
-
-      // 全体パルス（始まりと終わりでフェード）
-      const pulse = Math.sin(t * Math.PI) * 0.1;
-      ctx.fillStyle=`rgba(${ms.color},${pulse})`;
+      if(ms.timer<=0){this.milestoneQueue.splice(i,1);continue;}
+      const t=ms.timer/ms.maxTimer;
+      ctx.fillStyle=`rgba(${ms.color},${Math.sin(t*Math.PI)*0.1})`;
       ctx.fillRect(0,0,W,H);
-
-      // 複数リング
-      for (let ri = 0; ri < ms.rings.length; ri++) {
-        const ring = ms.rings[ri];
-        const ringT = Math.max(0, (ms.timer - ring.delay*ri) / 240);
-        if (ringT <= 0) continue;
-        const ringR = (1-ringT) * W * 0.65;
-        const ringAlpha = ringT * (1-ringT) * 4 * 0.25;
-        ctx.beginPath();
-        ctx.arc(W/2, H*0.42, ringR, 0, Math.PI*2);
-        ctx.strokeStyle=`rgba(${ms.color},${ringAlpha})`;
-        ctx.lineWidth = 1.5 - ri*0.4;
-        ctx.stroke();
+      for(const ring of ms.rings){
+        const rt=Math.max(0,(ms.timer-ring.delay)/ms.maxTimer);
+        if(rt<=0)continue;
+        const rr=(1-rt)*W*0.6;
+        ctx.beginPath(); ctx.arc(W/2,H*0.42,rr,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(${ms.color},${rt*(1-rt)*3*0.3})`;
+        ctx.lineWidth=1.5; ctx.stroke();
       }
     }
+  }
+
+  // ─────────────────── 地球・人類 ──────────────────────────────
+
+  _drawEarth(ctx, W, H, normTime, rain) {
+    const eX=W*0.5, eY=H*0.35;
+    const eR=40+(normTime-0.6)*80; if(eR<=0)return;
+    const al=Math.min(0.6,(normTime-0.6)*3);
+    const or=rain>0.2 ? 40 : 80;
+    const gr=ctx.createRadialGradient(eX-eR*0.3,eY-eR*0.3,eR*0.1,eX,eY,eR);
+    gr.addColorStop(0,`rgba(${or},160,220,${al})`);
+    gr.addColorStop(0.4,`rgba(40,120,60,${al*0.8})`);
+    gr.addColorStop(0.8,`rgba(20,60,120,${al*0.6})`);
+    gr.addColorStop(1,`rgba(0,0,20,${al*0.3})`);
+    ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(eX,eY,eR,0,Math.PI*2); ctx.fill();
+    const at=ctx.createRadialGradient(eX,eY,eR*0.9,eX,eY,eR*1.2);
+    at.addColorStop(0,`rgba(100,180,255,${al*0.3})`); at.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=at; ctx.beginPath(); ctx.arc(eX,eY,eR*1.2,0,Math.PI*2); ctx.fill();
+  }
+
+  _drawHumanity(ctx, W, H, normTime) {
+    const al=Math.min(0.12,(normTime-0.95)*2.4);
+    ctx.beginPath(); ctx.arc(W*0.5+15,H*0.38,2,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,240,200,${al})`; ctx.fill();
   }
 }
