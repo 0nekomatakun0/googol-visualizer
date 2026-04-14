@@ -2,7 +2,7 @@
   "_comment": "アセット差し替えマニフェスト。ファイルを置いてパスを記入するだけで差し替え可能。nullにすると合成音/デフォルト描画にフォールバックします。",
 
   "audio": {
-    "bgm":           "assets/audio/bgm.mp3",
+    "bgm":           "audio/bgm.mp3",
     "se_gear_click": null,
     "se_shooting_star": null,
     "se_milestone":  null,
@@ -10,6 +10,6 @@
   },
 
   "images": {
-    "gear_texture": "assets/images/gear_texture.png"
+    "gear_texture": "images/gear_texture.png"
   }
 }
