@@ -1,36 +1,120 @@
 # アセット差し替えガイド
 
-## 音声ファイル（assets/audio/）
+## フォルダ構成（全体）
 
-| ファイル名 | 用途 | 推奨フォーマット |
-|---|---|---|
-| `bgm.mp3` | バックグラウンドミュージック（ループ再生） | MP3 / OGG |
-| `se_gear_click.mp3` | 歯車の刻み音（短いSE、高速連射） | MP3 / WAV（短め） |
-| `se_shooting_star.mp3` | 流れ星SE | MP3 |
-| `se_milestone.mp3` | マイルストーン到達チャイム | MP3 |
-| `se_goal.mp3` | 完走ファンファーレ | MP3 |
+```
+cosmic-gears/
+│
+├── index.html                  ← エントリポイント（ここをブラウザで開く）
+│
+├── assets/
+│   ├── manifest.json           ← ★ 差し替えファイルのパスをここに書く
+│   ├── README.md               ← このファイル
+│   ├── audio/                  ← 音声ファイルを置くフォルダ
+│   │   ├── bgm.mp3             （例）BGM
+│   │   ├── se_gear_click.mp3   （例）歯車クリック音
+│   │   ├── se_shooting_star.mp3（例）流れ星SE
+│   │   ├── se_milestone.mp3    （例）マイルストーンチャイム
+│   │   └── se_goal.mp3         （例）完走ファンファーレ
+│   └── images/                 ← 画像ファイルを置くフォルダ
+│       └── gear_texture.png    （例）歯車テクスチャ
+│
+└── js/
+    ├── AssetLoader.js          ← アセット読み込み管理
+    ├── App.js                  ← メインループ・統合
+    ├── Gear.js                 ← 歯車の物理状態
+    ├── GearRenderer.js         ← 歯車の描画
+    ├── TimeController.js       ← 宇宙時間・マイルストーン管理
+    ├── UniverseRenderer.js     ← 宇宙背景の描画
+    ├── CounterRenderer.js      ← 回転カウンター表示
+    ├── InputController.js      ← マウス・タッチ・ホイール操作
+    └── AudioController.js      ← BGM・SE再生（合成フォールバック付き）
+```
 
-## 差し替え手順
+---
 
-1. ファイルをこの `assets/audio/` フォルダに置く
-2. `assets/manifest.json` の対応する `null` をファイルパスに変更する
+## 音声の差し替え方法
+
+### ステップ1 — ファイルを置く
+
+```
+assets/audio/bgm.mp3
+assets/audio/se_gear_click.mp3
+```
+
+### ステップ2 — manifest.json を編集する
 
 ```json
 {
   "audio": {
-    "bgm": "assets/audio/bgm.mp3",
-    "se_gear_click": "assets/audio/se_gear_click.mp3",
-    "se_milestone": "assets/audio/se_milestone.mp3"
+    "bgm":              "assets/audio/bgm.mp3",
+    "se_gear_click":    "assets/audio/se_gear_click.mp3",
+    "se_shooting_star": "assets/audio/se_shooting_star.mp3",
+    "se_milestone":     "assets/audio/se_milestone.mp3",
+    "se_goal":          "assets/audio/se_goal.mp3"
+  },
+  "images": {
+    "gear_texture": null
   }
 }
 ```
 
-ファイルが存在しない or null のままの場合は、自動的に Web Audio API による合成音にフォールバックします。
+- `null` のままにした項目は Web Audio API による**合成音**で代替されます
+- 一部だけ差し替えて残りは合成音のままにすることもできます
 
-## 画像ファイル（assets/images/）
+### 推奨フォーマット
 
-| ファイル名 | 用途 | 推奨サイズ |
+| キー | 内容 | 推奨 |
 |---|---|---|
-| `gear_texture.png` | 歯車のテクスチャオーバーレイ | 512×512 以上、PNG |
+| `bgm` | BGM（ループ再生） | MP3、OGG。静かなアンビエント系が合います |
+| `se_gear_click` | 歯車の刻み音（高頻度） | WAV推奨。20ms以内の短い金属音 |
+| `se_shooting_star` | 流れ星（1〜2秒） | MP3。グリッサンド系 |
+| `se_milestone` | マイルストーンチャイム（2〜3秒） | MP3 |
+| `se_goal` | 完走ファンファーレ（3〜5秒） | MP3 |
 
-テクスチャは歯車本体の上にオーバーレイ合成されます（multiply / overlay）。
+---
+
+## 歯車テクスチャの差し替え方法
+
+### ステップ1 — ファイルを置く
+
+```
+assets/images/gear_texture.png
+```
+
+### ステップ2 — manifest.json を編集する
+
+```json
+{
+  "audio": { ... },
+  "images": {
+    "gear_texture": "assets/images/gear_texture.png"
+  }
+}
+```
+
+### テクスチャ仕様
+
+- **サイズ**: 512×512px 以上推奨（正方形）
+- **フォーマット**: PNG（透過OK）
+- **合成方法**: `overlay` ブレンド、不透明度 25%
+- **効果**: 歯車の金属表面にテクスチャが重なります
+- **おすすめ**: 錆・金属板目・傷などのグレースケール画像
+
+---
+
+## ローカルで動かす場合の注意
+
+`fetch()` でmanifest.jsonを読むため、**ローカルサーバー経由**で開く必要があります。
+
+```bash
+# Python 3
+python3 -m http.server 8080
+# → http://localhost:8080 をブラウザで開く
+
+# Node.js (npx)
+npx serve .
+```
+
+`file://` プロトコルで直接開くと音声・画像差し替えが機能しません  
+（合成音・デフォルト描画にフォールバックして動作は継続します）
