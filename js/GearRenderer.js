@@ -153,11 +153,13 @@ class GearRenderer {
     ctx.strokeStyle=`rgba(${(255*b+glow*55)|0},${(240*b)|0},${(200*b)|0},0.38)`;
     ctx.lineWidth=0.8; ctx.stroke();
 
-    // テクスチャオーバーレイ（歯形に clip してから描画）
+    // テクスチャ合成（歯形に clip してから描画）
+    // 元の overlay + α0.25 は環境/画像によって差が分かりにくいので、
+    // まず「置き換わっている」ことが確実に分かるように強めに合成する。
     if (texture) {
       ctx.save();
-      ctx.globalCompositeOperation = 'overlay';
-      ctx.globalAlpha = 0.25;
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = 0.75;
       ctx.beginPath();
       for (let i = 0; i < teethCount; i++) {
         const a0=i*tw,a4=a0+tw;

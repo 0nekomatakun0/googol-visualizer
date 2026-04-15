@@ -33,12 +33,29 @@ class AudioController {
 
   // ─────────────────────────── 初期化 ──────────────────────────
 
+  _unlockAudio() {
+    // 一部ブラウザ（特にモバイル/Safari）で AudioContext が resume しても
+    // 最初の再生が鳴らないことがあるため、無音バッファを短く鳴らしてアンロックする。
+    if (!this.ac) return;
+    try {
+      const ac = this.ac;
+      const buf = ac.createBuffer(1, 1, ac.sampleRate);
+      const src = ac.createBufferSource();
+      src.buffer = buf;
+      src.connect(ac.destination);
+      src.start();
+    } catch (_) {
+      // noop
+    }
+  }
+
   async init() {
     if (this.initialized) return;
     try {
       this.ac = new (window.AudioContext || window.webkitAudioContext)();
       // ジェスチャ直後でも suspended のことがある（特にモバイル）。明示的に resume。
       if (this.ac.state === 'suspended') await this.ac.resume();
+      this._unlockAudio();
 
       this.master = this.ac.createGain();
       this.master.gain.value = 0.6;
