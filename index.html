@@ -147,6 +147,53 @@
     }
     #goal-body .big { color: rgba(230,210,140,0.9); font-size: 13px; }
     #goal-body .small { color: rgba(160,155,140,0.6); font-size: 10px; }
+
+    /* ─── 音声案内 + ミュート ─── */
+    #audio-notice {
+      position: fixed; bottom: 18px; left: 18px; right: 18px; max-width: 420px;
+      z-index: 55;
+      padding: 14px 16px 12px;
+      background: rgba(0,0,0,0.72);
+      border: 1px solid rgba(180,150,80,0.28);
+      backdrop-filter: blur(4px);
+      pointer-events: auto;
+      cursor: default;
+      transition: opacity 0.45s ease, transform 0.45s ease;
+    }
+    #audio-notice.hidden {
+      opacity: 0; pointer-events: none;
+      transform: translateY(12px);
+    }
+    #audio-notice .audio-notice-text {
+      font-size: 11px; line-height: 1.85;
+      letter-spacing: 1px;
+      color: rgba(220,210,190,0.88);
+      margin-bottom: 12px;
+    }
+    #audio-notice .audio-notice-actions {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    }
+    #audio-notice button {
+      font-family: inherit;
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      border-radius: 2px;
+      cursor: pointer;
+      border: 1px solid rgba(180,150,80,0.45);
+      background: rgba(40,35,25,0.9);
+      color: rgba(230,200,120,0.95);
+    }
+    #audio-notice button:hover {
+      background: rgba(60,52,35,0.95);
+      border-color: rgba(200,170,100,0.55);
+    }
+    #audio-notice #audio-notice-close {
+      border-color: rgba(120,120,120,0.4);
+      color: rgba(180,175,165,0.85);
+      background: rgba(25,25,25,0.85);
+    }
   </style>
 </head>
 <body>
@@ -155,6 +202,18 @@
   <canvas id="counter-canvas"></canvas>
   <div id="cursor"></div>
   <div id="phase-label"></div>
+
+  <!-- 音声案内（ミュートは常に有効。閉じるとバナーのみ非表示） -->
+  <div id="audio-notice" role="dialog" aria-label="音声の案内">
+    <p class="audio-notice-text">
+      このコンテンツは音が出ます。<br>
+      OFFにする場合は、下の<strong style="color:rgba(230,200,130,0.95)">ミュート</strong>ボタンを押してください。
+    </p>
+    <div class="audio-notice-actions">
+      <button type="button" id="audio-mute-btn" aria-pressed="false">ミュート</button>
+      <button type="button" id="audio-notice-close">閉じる</button>
+    </div>
+  </div>
 
   <!-- チュートリアル -->
   <div id="tutorial">

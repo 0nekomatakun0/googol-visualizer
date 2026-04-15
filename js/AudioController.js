@@ -32,6 +32,8 @@ class AudioController {
 
     this._bgmFileBuffer = null;
     this._pageAudioBound = false;
+    this._muted = false;
+    this._masterGainLinear = 0.6;
   }
 
   // ─────────────────────────── 初期化 ──────────────────────────
@@ -73,7 +75,7 @@ class AudioController {
     this.ac = new Ctx();
 
     this.master = this.ac.createGain();
-    this.master.gain.value = 0.6;
+    this.master.gain.value = this._muted ? 0 : this._masterGainLinear;
     this.master.connect(this.ac.destination);
 
     // await しない（次のマイクロタスクまで進むと「ジェスチャ外の resume」になることがある）
@@ -103,6 +105,7 @@ class AudioController {
 
       await this.resumeIfNeeded();
       this.initialized = true;
+      this._applyMuteToMaster();
       this._wirePageAudioResume();
     } catch (e) {
       console.warn('[AudioController] finishInitAsync error:', e);
@@ -114,6 +117,25 @@ class AudioController {
   init() {
     this.beginSyncFromGesture();
     return this.finishInitAsync();
+  }
+
+  setMuted(muted) {
+    this._muted = !!muted;
+    this._applyMuteToMaster();
+  }
+
+  isMuted() {
+    return this._muted;
+  }
+
+  _applyMuteToMaster() {
+    if (!this.master || !this.ac) return;
+    const now = this.ac.currentTime;
+    const g = this._muted ? 0 : this._masterGainLinear;
+    try {
+      this.master.gain.cancelScheduledValues(now);
+      this.master.gain.setValueAtTime(g, now);
+    } catch (_) { /* noop */ }
   }
 
   _wirePageAudioResume() {
@@ -297,7 +319,7 @@ class AudioController {
     const src = this.ac.createBufferSource();
     src.buffer = buf;
     if (!fileBuf) src.playbackRate.value = 0.7 + pitch * 0.9;
-    const g = this.ac.createGain(); g.gain.value = 0.22;
+    const g = this.ac.createGain(); g.gain.value = 0.14;
     src.connect(g); g.connect(this.master); src.start();
   }
 

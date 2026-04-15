@@ -14,6 +14,9 @@
   const eventFlash     = document.getElementById('event-flash');
   const milestoneMsg   = document.getElementById('milestone-msg');
   const goalScreen     = document.getElementById('goal-screen');
+  const audioNotice    = document.getElementById('audio-notice');
+  const audioMuteBtn   = document.getElementById('audio-mute-btn');
+  const audioNoticeClose = document.getElementById('audio-notice-close');
 
   // ─── AssetLoader（最初に起動、音声はAC確定後に再ロード） ───
   const assetLoader = new AssetLoader();
@@ -35,6 +38,26 @@
     audioCtrl.resumeIfNeeded();
   };
 
+  function syncMuteButton() {
+    if (!audioMuteBtn) return;
+    const m = audioCtrl.isMuted();
+    audioMuteBtn.setAttribute('aria-pressed', m ? 'true' : 'false');
+    audioMuteBtn.textContent = m ? 'ミュート解除' : 'ミュート';
+  }
+  if (audioMuteBtn) {
+    audioMuteBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      audioCtrl.setMuted(!audioCtrl.isMuted());
+      syncMuteButton();
+    });
+  }
+  if (audioNoticeClose && audioNotice) {
+    audioNoticeClose.addEventListener('click', function(e) {
+      e.stopPropagation();
+      audioNotice.classList.add('hidden');
+    });
+  }
+
   // 音声はユーザージェスチャの同期スタックで AudioContext を起動しないと
   // suspended のまま無音になりやすい（従来は RAF 内 init だった）。
   (function bindAudioOnUserGesture() {
@@ -50,7 +73,10 @@
         return;
       }
       audioCtrl.finishInitAsync().then(
-        function() { audioInited = true; },
+        function() {
+          audioInited = true;
+          syncMuteButton();
+        },
         function() { started = false; }
       );
     }
