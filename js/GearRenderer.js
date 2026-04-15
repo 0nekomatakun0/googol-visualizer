@@ -131,49 +131,45 @@ class GearRenderer {
     const hR  = r * 0.18;
     const b   = brightness;
 
-    // 金属グラデ
-    const mg = ctx.createRadialGradient(-r*0.2,-r*0.2,r*0.1, 0,0,r);
-    mg.addColorStop(0,`rgba(${(220*b+glow*35+energy*20)|0},${(200*b+glow*25)|0},${(160*b)|0},0.95)`);
-    mg.addColorStop(0.4,`rgba(${(140*b)|0},${(130*b)|0},${(110*b)|0},0.95)`);
-    mg.addColorStop(1,`rgba(${(60*b)|0},${(55*b)|0},${(50*b)|0},0.95)`);
-
-    // 歯
-    ctx.beginPath();
-    for (let i = 0; i < teethCount; i++) {
-      const a0=i*tw, a1=a0+tw*0.35, a2=a0+tw*0.5, a3=a0+tw*0.65, a4=a0+tw;
-      if(i===0) ctx.moveTo(iR*Math.cos(a0), iR*Math.sin(a0));
-      ctx.lineTo(iR*Math.cos(a0), iR*Math.sin(a0));
-      ctx.lineTo((r+th)*Math.cos(a1),(r+th)*Math.sin(a1));
-      ctx.lineTo((r+th)*Math.cos(a2),(r+th)*Math.sin(a2));
-      ctx.lineTo((r+th)*Math.cos(a3),(r+th)*Math.sin(a3));
-      ctx.lineTo(iR*Math.cos(a4), iR*Math.sin(a4));
-    }
-    ctx.closePath();
-    ctx.fillStyle = mg; ctx.fill();
-    ctx.strokeStyle=`rgba(${(255*b+glow*55)|0},${(240*b)|0},${(200*b)|0},0.38)`;
-    ctx.lineWidth=0.8; ctx.stroke();
-
-    // テクスチャ合成（歯形に clip してから描画）
-    // 元の overlay + α0.25 は環境/画像によって差が分かりにくいので、
-    // まず「置き換わっている」ことが確実に分かるように強めに合成する。
-    if (texture) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'source-atop';
-      ctx.globalAlpha = 0.75;
+    const drawGearPath = () => {
       ctx.beginPath();
       for (let i = 0; i < teethCount; i++) {
-        const a0=i*tw,a4=a0+tw;
-        if(i===0) ctx.moveTo(iR*Math.cos(a0),iR*Math.sin(a0));
-        ctx.lineTo(iR*Math.cos(a0),iR*Math.sin(a0));
-        ctx.lineTo((r+th)*Math.cos(a0+tw*0.35),(r+th)*Math.sin(a0+tw*0.35));
-        ctx.lineTo((r+th)*Math.cos(a0+tw*0.5),(r+th)*Math.sin(a0+tw*0.5));
-        ctx.lineTo((r+th)*Math.cos(a0+tw*0.65),(r+th)*Math.sin(a0+tw*0.65));
-        ctx.lineTo(iR*Math.cos(a4),iR*Math.sin(a4));
+        const a0=i*tw, a1=a0+tw*0.35, a2=a0+tw*0.5, a3=a0+tw*0.65, a4=a0+tw;
+        if(i===0) ctx.moveTo(iR*Math.cos(a0), iR*Math.sin(a0));
+        ctx.lineTo(iR*Math.cos(a0), iR*Math.sin(a0));
+        ctx.lineTo((r+th)*Math.cos(a1),(r+th)*Math.sin(a1));
+        ctx.lineTo((r+th)*Math.cos(a2),(r+th)*Math.sin(a2));
+        ctx.lineTo((r+th)*Math.cos(a3),(r+th)*Math.sin(a3));
+        ctx.lineTo(iR*Math.cos(a4), iR*Math.sin(a4));
       }
       ctx.closePath();
+    };
+
+    // 画像がある場合は「画像そのものを歯車として表示」する
+    if (texture) {
+      drawGearPath();
+      ctx.save();
       ctx.clip();
       ctx.drawImage(texture, -r, -r, r*2, r*2);
       ctx.restore();
+
+      // 輪郭だけ最低限描いて形を保つ
+      drawGearPath();
+      ctx.strokeStyle=`rgba(255,230,190,0.35)`;
+      ctx.lineWidth=0.8;
+      ctx.stroke();
+    } else {
+      // 金属グラデ
+      const mg = ctx.createRadialGradient(-r*0.2,-r*0.2,r*0.1, 0,0,r);
+      mg.addColorStop(0,`rgba(${(220*b+glow*35+energy*20)|0},${(200*b+glow*25)|0},${(160*b)|0},0.95)`);
+      mg.addColorStop(0.4,`rgba(${(140*b)|0},${(130*b)|0},${(110*b)|0},0.95)`);
+      mg.addColorStop(1,`rgba(${(60*b)|0},${(55*b)|0},${(50*b)|0},0.95)`);
+
+      // 歯
+      drawGearPath();
+      ctx.fillStyle = mg; ctx.fill();
+      ctx.strokeStyle=`rgba(${(255*b+glow*55)|0},${(240*b)|0},${(200*b)|0},0.38)`;
+      ctx.lineWidth=0.8; ctx.stroke();
     }
 
     // 内円

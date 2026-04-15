@@ -116,6 +116,7 @@ class AssetLoader {
     this.images[key] = null;
     if (!path) return;
     const url = this._resolveAssetPath(path);
+    const fallbackUrl = typeof url === 'string' ? url.replace('/assetes/', '/assets/') : null;
     try {
       const img = new Image();
       await new Promise((res, rej) => {
@@ -126,6 +127,21 @@ class AssetLoader {
       this.images[key] = img;
       console.log(`[AssetLoader] ✓ image:${key} loaded`);
     } catch(e) {
+      if (fallbackUrl && fallbackUrl !== url) {
+        try {
+          const img2 = new Image();
+          await new Promise((res, rej) => {
+            img2.onload  = res;
+            img2.onerror = rej;
+            img2.src     = fallbackUrl;
+          });
+          this.images[key] = img2;
+          console.log(`[AssetLoader] ✓ image:${key} loaded (fallback url=${fallbackUrl})`);
+          return;
+        } catch (e2) {
+          console.warn(`[AssetLoader] image:${key} fallback failed, url=${fallbackUrl}`, e2?.message || e2);
+        }
+      }
       console.warn(`[AssetLoader] image:${key} failed, url=${url}, using default rendering`);
     }
   }
