@@ -30,6 +30,11 @@
   const inputCtrl        = new InputController();
   const audioCtrl        = new AudioController(assetLoader);
 
+  // 操作中は毎回 resume（decode 後に suspended に戻る端末対策）
+  inputCtrl.onUserGesture = function() {
+    audioCtrl.resumeIfNeeded();
+  };
+
   // 音声はユーザージェスチャの同期スタックで AudioContext を起動しないと
   // suspended のまま無音になりやすい（従来は RAF 内 init だった）。
   (function bindAudioOnUserGesture() {
@@ -37,7 +42,10 @@
     function prime() {
       if (started) return;
       started = true;
-      audioCtrl.init().then(function() { audioInited = true; });
+      audioCtrl.init().then(
+        function() { audioInited = true; },
+        function() { started = false; }
+      );
     }
     ['pointerdown', 'touchstart', 'mousedown', 'wheel', 'keydown'].forEach(function(type) {
       window.addEventListener(type, prime, { capture: true, passive: true });

@@ -38,8 +38,12 @@ class UniverseRenderer {
   }
 
   resize() {
-    this.W = this.canvas.width  = window.innerWidth;
-    this.H = this.canvas.height = window.innerHeight;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    this.W = W;
+    this.H = H;
+    const { ctx } = setupCanvas2D(this.canvas, W, H);
+    this.ctx = ctx;
   }
 
   _initStars() {

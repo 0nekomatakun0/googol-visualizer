@@ -33,17 +33,28 @@ class AudioController {
 
   // ─────────────────────────── 初期化 ──────────────────────────
 
-  _unlockAudio() {
-    // 一部ブラウザ（特にモバイル/Safari）で AudioContext が resume しても
-    // 最初の再生が鳴らないことがあるため、無音バッファを短く鳴らしてアンロックする。
-    if (!this.ac) return;
+  /** マスター経由で無音を流し、モバイルで destination 直結より確実にアンロックする */
+  _unlockThroughMaster() {
+    if (!this.ac || !this.master) return;
     try {
       const ac = this.ac;
       const buf = ac.createBuffer(1, 1, ac.sampleRate);
       const src = ac.createBufferSource();
       src.buffer = buf;
-      src.connect(ac.destination);
+      const g = ac.createGain();
+      g.gain.value = 0.0001;
+      src.connect(g);
+      g.connect(this.master);
       src.start();
+    } catch (_) {
+      // noop
+    }
+  }
+
+  /** ジェスチャ後も suspended のままのことがある（decode 後など） */
+  async resumeIfNeeded() {
+    try {
+      if (this.ac && this.ac.state === 'suspended') await this.ac.resume();
     } catch (_) {
       // noop
     }
@@ -52,25 +63,29 @@ class AudioController {
   async init() {
     if (this.initialized) return;
     try {
-      this.ac = new (window.AudioContext || window.webkitAudioContext)();
-      // ジェスチャ直後でも suspended のことがある（特にモバイル）。明示的に resume。
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      this.ac = new Ctx();
       if (this.ac.state === 'suspended') await this.ac.resume();
-      this._unlockAudio();
 
       this.master = this.ac.createGain();
       this.master.gain.value = 0.6;
       this.master.connect(this.ac.destination);
 
-      // AssetLoaderにACを渡して音声ファイルをデコード
+      this._unlockThroughMaster();
+
+      // decode は非同期のため、ここで一度 suspended に戻ることがある
       await this.assets.reloadAudio(this.ac);
+      await this.resumeIfNeeded();
 
       this._buildBGM();
       this._buildGearNoise();
       this._buildClickBuffer();
 
+      await this.resumeIfNeeded();
       this.initialized = true;
     } catch(e) {
       console.warn('[AudioController] init error:', e);
+      throw e;
     }
   }
 

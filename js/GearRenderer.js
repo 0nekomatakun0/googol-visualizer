@@ -17,8 +17,12 @@ class GearRenderer {
   }
 
   computeLayout(gears) {
-    const W = this.canvas.width  = window.innerWidth;
-    const H = this.canvas.height = window.innerHeight;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const { cssW, cssH, ctx } = setupCanvas2D(this.canvas, W, H);
+    this.ctx = ctx;
+    this._cssW = cssW;
+    this._cssH = cssH;
     const N = gears.length;
 
     const maxR = Math.min(H * 0.28, W / (N * 1.2));
@@ -50,7 +54,9 @@ class GearRenderer {
 
   render(gears, time, totalRightRot) {
     const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    const cw = this._cssW != null ? this._cssW : this.canvas.width;
+    const ch = this._cssH != null ? this._cssH : this.canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
 
     // 接触点をリセット
     this.contactPoints = [];
@@ -147,6 +153,8 @@ class GearRenderer {
 
     // 画像がある場合は「画像そのものをそのまま表示」する
     if (texture) {
+      ctx.imageSmoothingEnabled = true;
+      if (ctx.imageSmoothingQuality !== undefined) ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(texture, -r, -r, r*2, r*2);
       // 画像表示時は金属の内円/スポーク/ハブを重ねない。
       return;

@@ -26,6 +26,8 @@ class InputController {
 
     // コールバック
     this.onMouseMove = null;
+    /** タッチ/マウス/ホイールの同期ハンドラ内で呼ぶ（AudioContext.resume 用） */
+    this.onUserGesture = null;
 
     this._bound = {
       mousedown:  this._onMouseDown.bind(this),
@@ -58,6 +60,7 @@ class InputController {
   }
 
   _onMouseDown(e) {
+    if (this.onUserGesture) this.onUserGesture(e);
     this.isDragging    = true;
     this.lastAngle     = this._getAngle(e.clientX, e.clientY);
     this.angularMomentum = 0;
@@ -93,6 +96,7 @@ class InputController {
   // → 画面を1本指で下→上にスワイプすると1回転する感覚。
 
   _onTouchStart(e) {
+    if (this.onUserGesture) this.onUserGesture(e);
     e.preventDefault();
     const t = e.touches[0];
     this.isDragging      = true;
@@ -140,6 +144,7 @@ class InputController {
   // ─────────────── ホイール ─────────────────────────────────────
 
   _onWheel(e) {
+    if (this.onUserGesture) this.onUserGesture(e);
     e.preventDefault();
     const d = e.deltaY * 0.0028;
     if (d > 0) this.deltaAngle = d;
