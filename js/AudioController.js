@@ -63,20 +63,37 @@ class AudioController {
     }
   }
 
-  async init() {
+  /**
+   * ユーザージェスチャの同期スタック内でだけ呼ぶこと（await 禁止のブロック）。
+   * async init 内で new AudioContext すると await が先に入り、Chrome がジェスチャを失効させる。
+   */
+  beginSyncFromGesture() {
+    if (this.ac) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    this.ac = new Ctx();
+
+    this.master = this.ac.createGain();
+    this.master.gain.value = 0.6;
+    this.master.connect(this.ac.destination);
+
+    // await しない（次のマイクロタスクまで進むと「ジェスチャ外の resume」になることがある）
+    if (this.ac.state === 'suspended') {
+      try {
+        void this.ac.resume();
+      } catch (_) { /* noop */ }
+    }
+
+    this._unlockThroughMaster();
+  }
+
+  /** beginSyncFromGesture のあとに呼ぶ（decode・BGM 構築は非同期） */
+  async finishInitAsync() {
     if (this.initialized) return;
+    if (!this.ac) {
+      console.warn('[AudioController] finishInitAsync: no AudioContext — call beginSyncFromGesture in a user event first');
+      return;
+    }
     try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      this.ac = new Ctx();
-      if (this.ac.state === 'suspended') await this.ac.resume();
-
-      this.master = this.ac.createGain();
-      this.master.gain.value = 0.6;
-      this.master.connect(this.ac.destination);
-
-      this._unlockThroughMaster();
-
-      // decode は非同期のため、ここで一度 suspended に戻ることがある
       await this.assets.reloadAudio(this.ac);
       await this.resumeIfNeeded();
 
@@ -87,10 +104,16 @@ class AudioController {
       await this.resumeIfNeeded();
       this.initialized = true;
       this._wirePageAudioResume();
-    } catch(e) {
-      console.warn('[AudioController] init error:', e);
+    } catch (e) {
+      console.warn('[AudioController] finishInitAsync error:', e);
       throw e;
     }
+  }
+
+  /** @deprecated 内部は begin + finish に分割。互換のため残す */
+  init() {
+    this.beginSyncFromGesture();
+    return this.finishInitAsync();
   }
 
   _wirePageAudioResume() {

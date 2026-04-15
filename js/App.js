@@ -42,12 +42,19 @@
     function prime() {
       if (started) return;
       started = true;
-      audioCtrl.init().then(
+      try {
+        audioCtrl.beginSyncFromGesture();
+      } catch (e) {
+        started = false;
+        console.warn('[AudioController] beginSync failed', e);
+        return;
+      }
+      audioCtrl.finishInitAsync().then(
         function() { audioInited = true; },
         function() { started = false; }
       );
     }
-    ['pointerdown', 'touchstart', 'mousedown', 'wheel', 'keydown'].forEach(function(type) {
+    ['pointerdown', 'touchstart', 'touchend', 'mousedown', 'wheel', 'keydown', 'click'].forEach(function(type) {
       window.addEventListener(type, prime, { capture: true, passive: true });
     });
   })();
