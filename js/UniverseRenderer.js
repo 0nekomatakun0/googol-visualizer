@@ -208,21 +208,27 @@ class UniverseRenderer {
   _emitContactParticles(contactPoints, speed) {
     if (!contactPoints || speed < 0.0003) return;
     for (const cp of contactPoints) {
-      const count = Math.ceil(speed * 40);
-      for (let i = 0; i < Math.min(count, 4); i++) {
+      const count = Math.min(3, 1 + Math.floor(speed * 60));
+      for (let i = 0; i < count; i++) {
         const ang = -Math.PI*0.6 + (Math.random()-0.5)*1.2; // 左上方向に飛ぶ
-        const spd = 0.5 + Math.random()*2 + speed*15;
+        const spd = 0.25 + Math.random()*1.2 + speed*6;
         this.contactParticles.push({
           x: cp.x + (Math.random()-0.5)*6,
           y: cp.y + (Math.random()-0.5)*6,
           vx: Math.cos(ang)*spd,
           vy: Math.sin(ang)*spd - 0.3,
           life: 1,
-          decay: 0.018 + Math.random()*0.025,
-          r: 0.8 + Math.random()*1.8,
-          hue: 30 + Math.random()*40,
+          decay: 0.03 + Math.random()*0.03,
+          r: 0.6 + Math.random()*1.1,
+          hue: 200 + Math.random()*20,
+          twinklePhase: Math.random() * Math.PI * 2,
+          twinkleSpeed: 0.18 + Math.random() * 0.28,
         });
       }
+    }
+    // 粒子数が増え続けないよう上限を厳しめにする
+    if (this.contactParticles.length > 420) {
+      this.contactParticles.splice(0, this.contactParticles.length - 420);
     }
   }
 
@@ -232,18 +238,26 @@ class UniverseRenderer {
       p.life -= p.decay;
       if (p.life <= 0) { this.contactParticles.splice(i,1); continue; }
       p.x += p.vx; p.y += p.vy;
-      p.vx *= 0.96; p.vy = p.vy*0.96 - 0.04;
+      p.vx *= 0.94; p.vy = p.vy*0.94 - 0.02;
+      p.twinklePhase += p.twinkleSpeed;
 
-      // 一部は蓄積粒子に昇格
-      if (p.life < 0.3 && Math.random() < 0.08 && this.accumParticles.length < this.MAX_ACCUM) {
-        this.accumParticles.push({
-          x:p.x, y:p.y, vx:p.vx*0.1, vy:p.vy*0.1,
-          hue:p.hue, r:Math.min(p.r*0.7, 0.9), alpha:0.45, life:1.0, maxLife:200+Math.random()*200,
-        });
-      }
+      // 星の瞬き表現（強い色ではなく白〜青白）
+      const twinkle = 0.6 + 0.4 * Math.sin(p.twinklePhase);
+      const alpha = p.life * twinkle * 0.7;
+      const rr = p.r * (0.85 + twinkle * 0.3);
 
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-      ctx.fillStyle=`hsla(${p.hue},85%,68%,${p.life*0.8})`;
+      const gw = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr * 3.2);
+      gw.addColorStop(0, `hsla(${p.hue},55%,88%,${alpha})`);
+      gw.addColorStop(0.55, `hsla(${p.hue},45%,74%,${alpha * 0.42})`);
+      gw.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gw;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, rr * 3.2, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, rr, 0, Math.PI*2);
+      ctx.fillStyle = `hsla(${p.hue},35%,95%,${Math.min(1, alpha * 1.15)})`;
       ctx.fill();
     }
   }

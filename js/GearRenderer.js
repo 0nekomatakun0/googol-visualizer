@@ -145,21 +145,10 @@ class GearRenderer {
       ctx.closePath();
     };
 
-    // 画像がある場合は「画像そのものを歯車として表示」する
+    // 画像がある場合は「画像そのものをそのまま表示」する
     if (texture) {
-      drawGearPath();
-      ctx.save();
-      ctx.clip();
       ctx.drawImage(texture, -r, -r, r*2, r*2);
-      ctx.restore();
-
-      // 輪郭だけ最低限描いて形を保つ
-      drawGearPath();
-      ctx.strokeStyle=`rgba(255,230,190,0.35)`;
-      ctx.lineWidth=0.8;
-      ctx.stroke();
       // 画像表示時は金属の内円/スポーク/ハブを重ねない。
-      // （重ねると「変わっていない」見た目に戻ってしまう）
       return;
     } else {
       // 金属グラデ
