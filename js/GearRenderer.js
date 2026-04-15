@@ -80,7 +80,8 @@ class GearRenderer {
       // 累積エネルギー = 右端の回転数 / 10^(右からの距離)
       const power       = gears.length - 1 - i;
       const logRot      = totalRightRot / Math.pow(10, power);
-      const energy      = Math.min(1, (logRot % 1)); // フラクション部分 0→1
+      let energy        = Math.min(1, (logRot % 1)); // フラクション部分 0→1
+      if (!Number.isFinite(energy)) energy = 0;
 
       this._drawGear(ctx, gear, layout, time, t, isRight, energy, texture);
 
@@ -91,6 +92,7 @@ class GearRenderer {
           const dx  = nextLayout.x - layout.x;
           const dy  = nextLayout.y - layout.y;
           const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < 1e-4) continue;
           const cx  = layout.x + (dx / dist) * layout.r;
           const cy  = layout.y + (dy / dist) * layout.r;
           const spd = Math.abs(gear.angularVelocity);

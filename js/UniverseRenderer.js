@@ -211,11 +211,13 @@ class UniverseRenderer {
 
   _emitContactParticles(contactPoints, speed) {
     if (!contactPoints || speed < 0.0003) return;
+    const safeSpeed = Math.min(Number.isFinite(speed) ? speed : 0, 2);
     for (const cp of contactPoints) {
-      const count = Math.min(3, 1 + Math.floor(speed * 60));
+      if (!cp || !Number.isFinite(cp.x) || !Number.isFinite(cp.y)) continue;
+      const count = Math.min(3, 1 + Math.floor(safeSpeed * 60));
       for (let i = 0; i < count; i++) {
         const ang = -Math.PI*0.6 + (Math.random()-0.5)*1.2; // 左上方向に飛ぶ
-        const spd = 0.25 + Math.random()*1.2 + speed*6;
+        const spd = 0.25 + Math.random()*1.2 + safeSpeed*6;
         this.contactParticles.push({
           x: cp.x + (Math.random()-0.5)*6,
           y: cp.y + (Math.random()-0.5)*6,
@@ -237,6 +239,8 @@ class UniverseRenderer {
   }
 
   _drawContactParticles(ctx) {
+    const W = this.W || 800;
+    const H = this.H || 600;
     for (let i = this.contactParticles.length-1; i >= 0; i--) {
       const p = this.contactParticles[i];
       p.life -= p.decay;
@@ -245,18 +249,30 @@ class UniverseRenderer {
       p.vx *= 0.94; p.vy = p.vy*0.94 - 0.02;
       p.twinklePhase += p.twinkleSpeed;
 
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.r) || p.r <= 0) {
+        this.contactParticles.splice(i, 1);
+        continue;
+      }
+      p.x = Math.max(-W, Math.min(W * 2, p.x));
+      p.y = Math.max(-H, Math.min(H * 2, p.y));
+
       // 星の瞬き表現（強い色ではなく白〜青白）
       const twinkle = 0.6 + 0.4 * Math.sin(p.twinklePhase);
       const alpha = p.life * twinkle * 0.7;
-      const rr = p.r * (0.85 + twinkle * 0.3);
+      const rr = Math.max(0.15, Math.min(80, p.r * (0.85 + twinkle * 0.3)));
+      const rOuter = Math.min(200, rr * 3.2);
+      if (!Number.isFinite(alpha) || !Number.isFinite(rr) || !Number.isFinite(rOuter)) {
+        this.contactParticles.splice(i, 1);
+        continue;
+      }
 
-      const gw = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr * 3.2);
+      const gw = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rOuter);
       gw.addColorStop(0, `hsla(${p.hue},55%,88%,${alpha})`);
       gw.addColorStop(0.55, `hsla(${p.hue},45%,74%,${alpha * 0.42})`);
       gw.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = gw;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, rr * 3.2, 0, Math.PI*2);
+      ctx.arc(p.x, p.y, rOuter, 0, Math.PI*2);
       ctx.fill();
 
       ctx.beginPath();

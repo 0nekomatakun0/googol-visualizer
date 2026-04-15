@@ -175,6 +175,8 @@
                      * (1 - i/(GEAR_COUNT-1)) * 0.00006;
         gears[i].angularVelocity = velocities[i];
         gears[i].angle += velocities[i] + tremor;
+        if (!Number.isFinite(velocities[i]) || velocities[i] > 1e6 || velocities[i] < 0) velocities[i] = 0;
+        if (!Number.isFinite(gears[i].angle)) gears[i].angle = 0;
       }
 
       // 右端の今フレーム回転量（tremor は右端では 0）
@@ -183,7 +185,10 @@
                     * (1 - ri/(GEAR_COUNT-1)) * 0.00006;
       const dThetaRight = velocities[ri] + tremorR;
       const TAU = Math.PI * 2;
-      totalRightSpins += dThetaRight / TAU;
+      if (Number.isFinite(dThetaRight)) {
+        totalRightSpins += dThetaRight / TAU;
+      }
+      if (!Number.isFinite(totalRightSpins) || totalRightSpins < 0) totalRightSpins = 0;
 
       // 角度が巨大になると float が破綻するので、右端だけ 2π の整数倍を削る（クリック差分は prev と同期）
       const MAX_A = 512 * TAU;
