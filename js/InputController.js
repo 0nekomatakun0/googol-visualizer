@@ -95,9 +95,24 @@ class InputController {
   // 画面高さに対してどれだけ動かしたか → 2π に対応させる。
   // → 画面を1本指で下→上にスワイプすると1回転する感覚。
 
-  _onTouchStart(e) {
-    if (this.onUserGesture) this.onUserGesture(e);
-    e.preventDefault();
+_onTouchStart(e) {
+  if (this.onUserGesture) this.onUserGesture(e);
+
+  if (e.target.closest('#sound-choice') || e.target.closest('#mute-toggle')) {
+    return;
+  }
+
+  e.preventDefault();
+
+  const t = e.touches[0];
+  this.isDragging      = true;
+  this._touchLastY     = t.clientY;
+  this._touchLastX     = t.clientX;
+  this._touchStartY    = t.clientY;
+  this._touchVY        = 0;
+  this.angularMomentum = 0;
+  this.deltaAngle      = 0;
+}
     const t = e.touches[0];
     this.isDragging      = true;
     this._touchLastY     = t.clientY;
@@ -108,8 +123,15 @@ class InputController {
     this.deltaAngle      = 0;
   }
 
-  _onTouchMove(e) {
-    e.preventDefault();
+_onTouchMove(e) {
+  // 👇 これ追加（ボタン触ってるときは無視）
+  if (e.target.closest('#sound-choice') || e.target.closest('#mute-toggle')) {
+    return;
+  }
+
+  e.preventDefault();
+
+  if (!this.isDragging || e.touches.length === 0) return;
     if (!this.isDragging || e.touches.length === 0) return;
     const t = e.touches[0];
     if (this.onMouseMove) this.onMouseMove(t.clientX, t.clientY);
