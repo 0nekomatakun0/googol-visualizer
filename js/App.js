@@ -132,6 +132,9 @@
   let clickAccum = 0;
   const CLICK_INTERVAL = (Math.PI * 2) / 16;
 
+  /** 右端の累積回転数（angle/(2π) に頼らない。角度が大きくなっても milestone / 表示が壊れない） */
+  let totalRightSpins = 0;
+
   // ─── 状態 ───
   let frameCount  = 0;
   let audioInited = false; // bindAudioOnUserGesture / init 完了で true
@@ -140,84 +143,104 @@
   // ─── メインループ ───
   function loop() {
     requestAnimationFrame(loop);
-    frameCount++;
+    try {
+      frameCount++;
 
-    // 入力（正方向のみ）
-    let inputDelta = inputCtrl.consume();
-    if (inputDelta < 0) inputDelta = 0;
+      // 入力（正方向のみ）
+      let inputDelta = inputCtrl.consume();
+      if (inputDelta < 0) inputDelta = 0;
 
-    if (inputDelta > 0.0005 && !firstInput) {
-      firstInput = true;
-      hideTutorial();
-    }
-
-    // 右端に入力（係数が大きいほど同じ操作で速く回る）
-    const INPUT_TO_VELOCITY = 0.36;
-    velocities[GEAR_COUNT-1] += inputDelta * INPUT_TO_VELOCITY;
-    if (velocities[GEAR_COUNT-1] < 0) velocities[GEAR_COUNT-1] = 0;
-
-    // 右→左伝播
-    for (let i = GEAR_COUNT-2; i >= 0; i--) {
-      const target = velocities[i+1] * 0.1;
-      const follow = 0.025 + (i / GEAR_COUNT) * 0.015;
-      velocities[i] += (target - velocities[i]) * follow;
-      if (velocities[i] < 0) velocities[i] = 0;
-    }
-
-    // 慣性減衰・角度更新
-    for (let i = 0; i < GEAR_COUNT; i++) {
-      velocities[i] *= INERTIA[i];
-      const tremor = Math.sin(frameCount*0.038 + i*1.9)
-                   * (1 - i/(GEAR_COUNT-1)) * 0.00006;
-      gears[i].angularVelocity = velocities[i];
-      gears[i].angle += velocities[i] + tremor;
-    }
-
-    // ─── カウント ───
-    const rightRot = gears[GEAR_COUNT-1].angle / (Math.PI*2);
-    for (let i = 0; i < GEAR_COUNT; i++) {
-      gears[i].rotationCount = Math.floor(rightRot / Math.pow(10, GEAR_COUNT-1-i)) % 10;
-    }
-
-    // ─── TimeController ───
-    const leftLogRad = (rightRot / Math.pow(10, GEAR_COUNT-1)) * (Math.PI*2);
-    timeCtrl.update(rightRot, leftLogRad);
-
-    // ─── 完走チェック ───
-    if (!goalFired && rightRot >= Math.pow(10, GEAR_COUNT-1)) fireGoal();
-
-    // ─── 流れ星 ───
-    if (Date.now() >= nextStarTime) {
-      universeRenderer.triggerShootingStar();
-      if (audioInited) audioCtrl.playShootingStar();
-      schedStar();
-    }
-
-    // ─── 歯車クリック音 ───
-    if (audioInited) {
-      const diff = gears[GEAR_COUNT-1].angle - prevRightAngle;
-      clickAccum += diff;
-      prevRightAngle = gears[GEAR_COUNT-1].angle;
-      while (clickAccum >= CLICK_INTERVAL) {
-        clickAccum -= CLICK_INTERVAL;
-        audioCtrl.playClick(0.6 + velocities[GEAR_COUNT-1] * 8);
+      if (inputDelta > 0.0005 && !firstInput) {
+        firstInput = true;
+        hideTutorial();
       }
-    }
 
-    // ─── 音声更新 ───
-    if (audioInited) {
-      audioCtrl.update(Math.abs(velocities[GEAR_COUNT-1]), timeCtrl.currentPhaseIndex);
-    }
+      // 右端に入力（係数が大きいほど同じ操作で速く回る）
+      const INPUT_TO_VELOCITY = 0.36;
+      velocities[GEAR_COUNT-1] += inputDelta * INPUT_TO_VELOCITY;
+      if (velocities[GEAR_COUNT-1] < 0) velocities[GEAR_COUNT-1] = 0;
 
-    // ─── 描画 ───
-    universeRenderer.render(
-      timeCtrl,
-      velocities[GEAR_COUNT-1],
-      rightRot,
-      gearRenderer.contactPoints
-    );
-    gearRenderer.render(gears, frameCount, rightRot);
-    counterRenderer.render(gears, gearRenderer.gearLayouts);
+      // 右→左伝播
+      for (let i = GEAR_COUNT-2; i >= 0; i--) {
+        const target = velocities[i+1] * 0.1;
+        const follow = 0.025 + (i / GEAR_COUNT) * 0.015;
+        velocities[i] += (target - velocities[i]) * follow;
+        if (velocities[i] < 0) velocities[i] = 0;
+      }
+
+      // 慣性減衰・角度更新
+      for (let i = 0; i < GEAR_COUNT; i++) {
+        velocities[i] *= INERTIA[i];
+        const tremor = Math.sin(frameCount*0.038 + i*1.9)
+                     * (1 - i/(GEAR_COUNT-1)) * 0.00006;
+        gears[i].angularVelocity = velocities[i];
+        gears[i].angle += velocities[i] + tremor;
+      }
+
+      // 右端の今フレーム回転量（tremor は右端では 0）
+      const ri = GEAR_COUNT - 1;
+      const tremorR = Math.sin(frameCount*0.038 + ri*1.9)
+                    * (1 - ri/(GEAR_COUNT-1)) * 0.00006;
+      const dThetaRight = velocities[ri] + tremorR;
+      const TAU = Math.PI * 2;
+      totalRightSpins += dThetaRight / TAU;
+
+      // 角度が巨大になると float が破綻するので、右端だけ 2π の整数倍を削る（クリック差分は prev と同期）
+      const MAX_A = 512 * TAU;
+      if (gears[ri].angle > MAX_A) {
+        const cut = Math.floor((gears[ri].angle - MAX_A / 2) / TAU) * TAU;
+        gears[ri].angle -= cut;
+        prevRightAngle -= cut;
+      }
+
+      // ─── カウント（累積回転は totalRightSpins を正とする） ───
+      const rightRot = totalRightSpins;
+      for (let i = 0; i < GEAR_COUNT; i++) {
+        gears[i].rotationCount = Math.floor(rightRot / Math.pow(10, GEAR_COUNT-1-i)) % 10;
+      }
+
+      // ─── TimeController ───
+      const leftLogRad = (rightRot / Math.pow(10, GEAR_COUNT-1)) * (Math.PI*2);
+      timeCtrl.update(rightRot, leftLogRad);
+
+      // ─── 完走チェック ───
+      if (!goalFired && rightRot >= Math.pow(10, GEAR_COUNT-1)) fireGoal();
+
+      // ─── 流れ星 ───
+      if (Date.now() >= nextStarTime) {
+        universeRenderer.triggerShootingStar();
+        if (audioInited) audioCtrl.playShootingStar();
+        schedStar();
+      }
+
+      // ─── 歯車クリック音 ───
+      if (audioInited) {
+        const diff = gears[GEAR_COUNT-1].angle - prevRightAngle;
+        clickAccum += diff;
+        prevRightAngle = gears[GEAR_COUNT-1].angle;
+        while (clickAccum >= CLICK_INTERVAL) {
+          clickAccum -= CLICK_INTERVAL;
+          audioCtrl.playClick(0.6 + velocities[GEAR_COUNT-1] * 8);
+        }
+      }
+
+      // ─── 音声更新 ───
+      if (audioInited) {
+        audioCtrl.update(Math.abs(velocities[GEAR_COUNT-1]), timeCtrl.currentPhaseIndex);
+      }
+
+      // ─── 描画 ───
+      universeRenderer.render(
+        timeCtrl,
+        velocities[GEAR_COUNT-1],
+        rightRot,
+        gearRenderer.contactPoints
+      );
+      gearRenderer.render(gears, frameCount, rightRot);
+      counterRenderer.render(gears, gearRenderer.gearLayouts);
+    } catch (e) {
+      console.error('[App] frame error', e);
+    }
   }
 
   loop();
