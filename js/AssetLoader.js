@@ -35,15 +35,43 @@ class AssetLoader {
 
   /** マニフェストを読み込み、全アセットを並行ロード */
   async load() {
-    try {
-      const manifestHref = new URL('assets/manifest.json', document.baseURI).href;
-      const res = await fetch(manifestHref, { cache: 'no-cache' });
-      this._manifestUrl = new URL(res.url);
-      this.manifest = await res.json();
-    } catch(e) {
-      console.warn('[AssetLoader] manifest.json not found, using all fallbacks.');
-      this._manifestUrl = new URL('assets/manifest.json', document.baseURI);
+    // Vercel などで「配置ルート」がズレるケースがあるので、候補を順番に試す。
+    const candidates = [
+      new URL('assets/manifest.json', document.baseURI).href,   // 通常
+      new URL('./assets/manifest.json', document.baseURI).href, // 念のため
+      new URL('/assets/manifest.json', document.baseURI).href,  // サイト直下固定
+    ];
+
+    let res = null;
+    const tried = [];
+    for (const href of candidates) {
+      try {
+        tried.push(href);
+        const r = await fetch(href, { cache: 'no-cache' });
+        if (!r.ok) {
+          console.warn('[AssetLoader] manifest fetch failed', r.status, href);
+          continue;
+        }
+        res = r;
+        break;
+      } catch (e) {
+        console.warn('[AssetLoader] manifest fetch error', href, e?.message || e);
+      }
+    }
+
+    if (!res) {
+      console.warn('[AssetLoader] manifest.json not found, using all fallbacks. tried:', tried);
+      this._manifestUrl = new URL(candidates[0]);
       this.manifest = { audio: {}, images: {} };
+    } else {
+      this._manifestUrl = new URL(res.url);
+      try {
+        this.manifest = await res.json();
+      } catch (e) {
+        console.warn('[AssetLoader] manifest.json parse failed, using fallbacks.', e?.message || e);
+        this.manifest = { audio: {}, images: {} };
+      }
+      console.log('[AssetLoader] manifest loaded from', this._manifestUrl.href, this.manifest);
     }
 
     const audioJobs = Object.entries(this.manifest.audio || {}).map(
@@ -80,7 +108,7 @@ class AssetLoader {
       this.audio[key] = await this._ac.decodeAudioData(arrayBuf);
       console.log(`[AssetLoader] ✓ audio:${key} loaded`);
     } catch(e) {
-      console.warn(`[AssetLoader] audio:${key} failed (${e.message}), using synthesis fallback`);
+      console.warn(`[AssetLoader] audio:${key} failed (${e.message}), url=${url}, using synthesis fallback`);
     }
   }
 
@@ -98,7 +126,7 @@ class AssetLoader {
       this.images[key] = img;
       console.log(`[AssetLoader] ✓ image:${key} loaded`);
     } catch(e) {
-      console.warn(`[AssetLoader] image:${key} failed, using default rendering`);
+      console.warn(`[AssetLoader] image:${key} failed, url=${url}, using default rendering`);
     }
   }
 
