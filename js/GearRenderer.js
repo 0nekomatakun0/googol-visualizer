@@ -158,6 +158,9 @@ class GearRenderer {
       ctx.strokeStyle=`rgba(255,230,190,0.35)`;
       ctx.lineWidth=0.8;
       ctx.stroke();
+      // 画像表示時は金属の内円/スポーク/ハブを重ねない。
+      // （重ねると「変わっていない」見た目に戻ってしまう）
+      return;
     } else {
       // 金属グラデ
       const mg = ctx.createRadialGradient(-r*0.2,-r*0.2,r*0.1, 0,0,r);
