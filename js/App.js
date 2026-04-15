@@ -14,13 +14,15 @@
   const eventFlash     = document.getElementById('event-flash');
   const milestoneMsg   = document.getElementById('milestone-msg');
   const goalScreen     = document.getElementById('goal-screen');
-  const audioNotice    = document.getElementById('audio-notice');
-  const audioMuteBtn   = document.getElementById('audio-mute-btn');
-  const audioNoticeClose = document.getElementById('audio-notice-close');
+  const muteToggle     = document.getElementById('mute-toggle');
+  const iconSound      = document.getElementById('icon-sound');
+  const iconMuted      = document.getElementById('icon-muted');
+  const btnSoundOn     = document.getElementById('btn-sound-on');
+  const btnSoundOff    = document.getElementById('btn-sound-off');
 
-  // ─── AssetLoader（最初に起動、音声はAC確定後に再ロード） ───
+  // ─── AssetLoader ───
   const assetLoader = new AssetLoader();
-  assetLoader.load(); // 画像は先に。音声は AudioContext 作成後に reloadAudio
+  assetLoader.load();
 
   // ─── モジュール ───
   const gears = [];
@@ -33,57 +35,57 @@
   const inputCtrl        = new InputController();
   const audioCtrl        = new AudioController(assetLoader);
 
-  // 操作中は毎回 resume（decode 後に suspended に戻る端末対策）
-  inputCtrl.onUserGesture = function() {
-    audioCtrl.resumeIfNeeded();
-  };
+  inputCtrl.onUserGesture = function() { audioCtrl.resumeIfNeeded(); };
 
-  function syncMuteButton() {
-    if (!audioMuteBtn) return;
+  // ─── ミュートアイコン同期 ───
+  function syncMuteIcon() {
     const m = audioCtrl.isMuted();
-    audioMuteBtn.setAttribute('aria-pressed', m ? 'true' : 'false');
-    audioMuteBtn.textContent = m ? 'ミュート解除' : 'ミュート';
-  }
-  if (audioMuteBtn) {
-    audioMuteBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      audioCtrl.setMuted(!audioCtrl.isMuted());
-      syncMuteButton();
-    });
-  }
-  if (audioNoticeClose && audioNotice) {
-    audioNoticeClose.addEventListener('click', function(e) {
-      e.stopPropagation();
-      audioNotice.classList.add('hidden');
-    });
+    iconSound.style.display = m ? 'none'  : '';
+    iconMuted.style.display = m ? ''      : 'none';
+    muteToggle.title = m ? '音をオンにする' : 'ミュート';
   }
 
-  // 音声はユーザージェスチャの同期スタックで AudioContext を起動しないと
-  // suspended のまま無音になりやすい（従来は RAF 内 init だった）。
-  (function bindAudioOnUserGesture() {
-    let started = false;
-    function prime() {
-      if (started) return;
-      started = true;
-      try {
-        audioCtrl.beginSyncFromGesture();
-      } catch (e) {
-        started = false;
-        console.warn('[AudioController] beginSync failed', e);
-        return;
-      }
-      audioCtrl.finishInitAsync().then(
-        function() {
-          audioInited = true;
-          syncMuteButton();
-        },
-        function() { started = false; }
-      );
+  muteToggle.addEventListener('click', function(e) {
+    e.stopPropagation();
+    audioCtrl.setMuted(!audioCtrl.isMuted());
+    syncMuteIcon();
+  });
+
+  // ─── チュートリアルのボタン処理 ───
+  // 音あり／消音どちらを選んでも始まる。
+  // ボタンはユーザージェスチャなので AudioContext を安全に起動できる。
+  let audioStarted = false;
+
+  function startWithSound(muted) {
+    if (audioStarted) return;
+    audioStarted = true;
+
+    // ミュート状態を先にセット
+    audioCtrl.setMuted(muted);
+    syncMuteIcon();
+
+    // ジェスチャスタックの同期部分でACを生成
+    try {
+      audioCtrl.beginSyncFromGesture();
+    } catch(e) {
+      console.warn('[Audio] beginSync failed', e);
     }
-    ['pointerdown', 'touchstart', 'touchend', 'mousedown', 'wheel', 'keydown', 'click'].forEach(function(type) {
-      window.addEventListener(type, prime, { capture: true, passive: true });
-    });
-  })();
+
+    // 非同期初期化
+    audioCtrl.finishInitAsync().then(
+      function() { audioInited = true; syncMuteIcon(); },
+      function(e) { console.warn('[Audio] init failed', e); }
+    );
+
+    // チュートリアルを閉じる
+    hideTutorial();
+
+    // ミュートアイコンをフェードイン
+    setTimeout(function() { muteToggle.classList.add('visible'); }, 2800);
+  }
+
+  btnSoundOn.addEventListener('click',  function(e) { e.stopPropagation(); startWithSound(false); });
+  btnSoundOff.addEventListener('click', function(e) { e.stopPropagation(); startWithSound(true);  });
 
   // ─── 慣性係数 ───
   const INERTIA = [];
@@ -116,7 +118,6 @@
   timeCtrl.onMilestone = function(ms) {
     universeRenderer.triggerMilestone(ms);
     audioCtrl.playMilestoneChime(ms.power);
-
     const [r,g,b] = ms.color;
     eventFlash.style.background =
       `radial-gradient(ellipse at 50% 45%, rgba(${r},${g},${b},0.25) 0%, transparent 65%)`;
@@ -143,7 +144,7 @@
     if (tutorialDone) return;
     tutorialDone = true;
     tutorial.classList.add('fade-out');
-    setTimeout(function() { tutorial.style.display = 'none'; }, 2700);
+    setTimeout(function() { tutorial.style.display = 'none'; }, 2400);
   }
 
   // ─── 完走 ───
@@ -164,14 +165,11 @@
   let prevRightAngle = 0;
   let clickAccum = 0;
   const CLICK_INTERVAL = (Math.PI * 2) / 16;
-
-  /** 右端の累積回転数（angle/(2π) に頼らない。角度が大きくなっても milestone / 表示が壊れない） */
   let totalRightSpins = 0;
 
   // ─── 状態 ───
   let frameCount  = 0;
-  let audioInited = false; // bindAudioOnUserGesture / init 完了で true
-  let firstInput  = false;
+  let audioInited = false;
 
   // ─── メインループ ───
   function loop() {
@@ -179,18 +177,11 @@
     try {
       frameCount++;
 
-      // 入力（正方向のみ）
       let inputDelta = inputCtrl.consume();
       if (inputDelta < 0) inputDelta = 0;
 
-      if (inputDelta > 0.0005 && !firstInput) {
-        firstInput = true;
-        hideTutorial();
-      }
-
-      // 右端に入力（係数が大きいほど同じ操作で速く回る）
-      const INPUT_TO_VELOCITY = 0.36;
-      velocities[GEAR_COUNT-1] += inputDelta * INPUT_TO_VELOCITY;
+      // 右端に入力
+      velocities[GEAR_COUNT-1] += inputDelta * 0.36;
       if (velocities[GEAR_COUNT-1] < 0) velocities[GEAR_COUNT-1] = 0;
 
       // 右→左伝播
@@ -202,81 +193,69 @@
       }
 
       // 慣性減衰・角度更新
+      const TAU = Math.PI * 2;
       for (let i = 0; i < GEAR_COUNT; i++) {
         velocities[i] *= INERTIA[i];
         const tremor = Math.sin(frameCount*0.038 + i*1.9)
                      * (1 - i/(GEAR_COUNT-1)) * 0.00006;
         gears[i].angularVelocity = velocities[i];
         gears[i].angle += velocities[i] + tremor;
-        if (!Number.isFinite(velocities[i]) || velocities[i] > 1e6 || velocities[i] < 0) velocities[i] = 0;
+        if (!Number.isFinite(velocities[i]) || velocities[i] > 1e6) velocities[i] = 0;
         if (!Number.isFinite(gears[i].angle)) gears[i].angle = 0;
       }
 
-      // 右端の今フレーム回転量（tremor は右端では 0）
+      // 右端の累積スピン
       const ri = GEAR_COUNT - 1;
-      const tremorR = Math.sin(frameCount*0.038 + ri*1.9)
-                    * (1 - ri/(GEAR_COUNT-1)) * 0.00006;
-      const dThetaRight = velocities[ri] + tremorR;
-      const TAU = Math.PI * 2;
-      if (Number.isFinite(dThetaRight)) {
-        totalRightSpins += dThetaRight / TAU;
-      }
+      const dTheta = velocities[ri];
+      if (Number.isFinite(dTheta)) totalRightSpins += dTheta / TAU;
       if (!Number.isFinite(totalRightSpins) || totalRightSpins < 0) totalRightSpins = 0;
 
-      // 角度が巨大になると float が破綻するので、右端だけ 2π の整数倍を削る（クリック差分は prev と同期）
+      // 角度オーバーフロー防止
       const MAX_A = 512 * TAU;
       if (gears[ri].angle > MAX_A) {
         const cut = Math.floor((gears[ri].angle - MAX_A / 2) / TAU) * TAU;
-        gears[ri].angle -= cut;
-        prevRightAngle -= cut;
+        gears[ri].angle  -= cut;
+        prevRightAngle   -= cut;
       }
 
-      // ─── カウント（累積回転は totalRightSpins を正とする） ───
+      // カウント
       const rightRot = totalRightSpins;
       for (let i = 0; i < GEAR_COUNT; i++) {
         gears[i].rotationCount = Math.floor(rightRot / Math.pow(10, GEAR_COUNT-1-i)) % 10;
       }
 
-      // ─── TimeController ───
-      const leftLogRad = (rightRot / Math.pow(10, GEAR_COUNT-1)) * (Math.PI*2);
+      // TimeController
+      const leftLogRad = (rightRot / Math.pow(10, GEAR_COUNT-1)) * TAU;
       timeCtrl.update(rightRot, leftLogRad);
 
-      // ─── 完走チェック ───
+      // 完走
       if (!goalFired && rightRot >= Math.pow(10, GEAR_COUNT-1)) fireGoal();
 
-      // ─── 流れ星 ───
+      // 流れ星
       if (Date.now() >= nextStarTime) {
         universeRenderer.triggerShootingStar();
         if (audioInited) audioCtrl.playShootingStar();
         schedStar();
       }
 
-      // ─── 歯車クリック音 ───
+      // 歯車クリック音
       if (audioInited) {
-        const diff = gears[GEAR_COUNT-1].angle - prevRightAngle;
-        clickAccum += diff;
-        prevRightAngle = gears[GEAR_COUNT-1].angle;
+        const diff = gears[ri].angle - prevRightAngle;
+        clickAccum    += diff;
+        prevRightAngle = gears[ri].angle;
         while (clickAccum >= CLICK_INTERVAL) {
           clickAccum -= CLICK_INTERVAL;
-          audioCtrl.playClick(0.6 + velocities[GEAR_COUNT-1] * 8);
+          audioCtrl.playClick(0.6 + velocities[ri] * 8);
         }
+        audioCtrl.update(Math.abs(velocities[ri]), timeCtrl.currentPhaseIndex);
       }
 
-      // ─── 音声更新 ───
-      if (audioInited) {
-        audioCtrl.update(Math.abs(velocities[GEAR_COUNT-1]), timeCtrl.currentPhaseIndex);
-      }
-
-      // ─── 描画 ───
-      universeRenderer.render(
-        timeCtrl,
-        velocities[GEAR_COUNT-1],
-        rightRot,
-        gearRenderer.contactPoints
-      );
+      // 描画
+      universeRenderer.render(timeCtrl, velocities[ri], rightRot, gearRenderer.contactPoints);
       gearRenderer.render(gears, frameCount, rightRot);
       counterRenderer.render(gears, gearRenderer.gearLayouts);
-    } catch (e) {
+
+    } catch(e) {
       console.error('[App] frame error', e);
     }
   }
