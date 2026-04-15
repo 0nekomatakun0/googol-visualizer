@@ -36,7 +36,8 @@ class AssetLoader {
   /** マニフェストを読み込み、全アセットを並行ロード */
   async load() {
     try {
-      const res = await fetch('assets/manifest.json');
+      const manifestHref = new URL('assets/manifest.json', document.baseURI).href;
+      const res = await fetch(manifestHref, { cache: 'no-cache' });
       this._manifestUrl = new URL(res.url);
       this.manifest = await res.json();
     } catch(e) {

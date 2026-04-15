@@ -17,7 +17,7 @@
 
   // ─── AssetLoader（最初に起動、音声はAC確定後に再ロード） ───
   const assetLoader = new AssetLoader();
-  assetLoader.load(); // 画像だけ先にロード（音声はAC確定後）
+  assetLoader.load(); // 画像は先に。音声は AudioContext 作成後に reloadAudio
 
   // ─── モジュール ───
   const gears = [];
@@ -29,6 +29,20 @@
   const counterRenderer  = new CounterRenderer(counterCanvas);
   const inputCtrl        = new InputController();
   const audioCtrl        = new AudioController(assetLoader);
+
+  // 音声はユーザージェスチャの同期スタックで AudioContext を起動しないと
+  // suspended のまま無音になりやすい（従来は RAF 内 init だった）。
+  (function bindAudioOnUserGesture() {
+    let started = false;
+    function prime() {
+      if (started) return;
+      started = true;
+      audioCtrl.init().then(function() { audioInited = true; });
+    }
+    ['pointerdown', 'touchstart', 'mousedown', 'wheel', 'keydown'].forEach(function(type) {
+      window.addEventListener(type, prime, { capture: true, passive: true });
+    });
+  })();
 
   // ─── 慣性係数 ───
   const INERTIA = [];
@@ -112,7 +126,7 @@
 
   // ─── 状態 ───
   let frameCount  = 0;
-  let audioInited = false;
+  let audioInited = false; // bindAudioOnUserGesture / init 完了で true
   let firstInput  = false;
 
   // ─── メインループ ───
@@ -127,11 +141,11 @@
     if (inputDelta > 0.0005 && !firstInput) {
       firstInput = true;
       hideTutorial();
-      audioCtrl.init().then(function() { audioInited = true; });
     }
 
-    // 右端に入力
-    velocities[GEAR_COUNT-1] += inputDelta * 0.7;
+    // 右端に入力（係数が大きいほど同じ操作で速く回る）
+    const INPUT_TO_VELOCITY = 0.36;
+    velocities[GEAR_COUNT-1] += inputDelta * INPUT_TO_VELOCITY;
     if (velocities[GEAR_COUNT-1] < 0) velocities[GEAR_COUNT-1] = 0;
 
     // 右→左伝播

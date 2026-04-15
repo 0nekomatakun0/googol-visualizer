@@ -74,7 +74,7 @@ class InputController {
     // 正方向のみ
     if (delta > 0) {
       this.deltaAngle      = delta;
-      this.angularMomentum = delta * 0.75 + this.angularMomentum * 0.25;
+      this.angularMomentum = delta * 0.45 + this.angularMomentum * 0.25;
     }
     this.lastAngle = angle;
   }
@@ -117,8 +117,8 @@ class InputController {
     const isVertical = Math.abs(dy) >= Math.abs(dx) * 0.5;
 
     if (isVertical && dy > 0) { // 上スワイプ = 正回転のみ
-      // 画面高さ全体で約1周分
-      const sensitivity = (Math.PI * 2) / (window.innerHeight * 1.2);
+      // 画面高さに対する1周分の感度（係数を大きくするほど同じスワイプで回転量が減る）
+      const sensitivity = (Math.PI * 2) / (window.innerHeight * 2.1);
       const delta = dy * sensitivity;
       this.deltaAngle      = delta;
       this._touchVY        = dy * sensitivity * 0.7 + this._touchVY * 0.3;
@@ -141,7 +141,7 @@ class InputController {
 
   _onWheel(e) {
     e.preventDefault();
-    const d = e.deltaY * 0.005; // 感度を少し上げる
+    const d = e.deltaY * 0.0028;
     if (d > 0) this.deltaAngle = d;
   }
 

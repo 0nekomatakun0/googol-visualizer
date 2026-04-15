@@ -153,7 +153,7 @@ class GearRenderer {
     ctx.strokeStyle=`rgba(${(255*b+glow*55)|0},${(240*b)|0},${(200*b)|0},0.38)`;
     ctx.lineWidth=0.8; ctx.stroke();
 
-    // テクスチャオーバーレイ
+    // テクスチャオーバーレイ（歯形に clip してから描画）
     if (texture) {
       ctx.save();
       ctx.globalCompositeOperation = 'overlay';
@@ -169,9 +169,8 @@ class GearRenderer {
         ctx.lineTo(iR*Math.cos(a4),iR*Math.sin(a4));
       }
       ctx.closePath();
-      ctx.drawImage(texture, -r, -r, r*2, r*2);
       ctx.clip();
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(texture, -r, -r, r*2, r*2);
       ctx.restore();
     }
 

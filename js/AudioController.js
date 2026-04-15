@@ -37,6 +37,9 @@ class AudioController {
     if (this.initialized) return;
     try {
       this.ac = new (window.AudioContext || window.webkitAudioContext)();
+      // ジェスチャ直後でも suspended のことがある（特にモバイル）。明示的に resume。
+      if (this.ac.state === 'suspended') await this.ac.resume();
+
       this.master = this.ac.createGain();
       this.master.gain.value = 0.6;
       this.master.connect(this.ac.destination);
