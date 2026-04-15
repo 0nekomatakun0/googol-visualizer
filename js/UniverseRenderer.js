@@ -419,9 +419,11 @@ class UniverseRenderer {
         const rt=Math.max(0,(ms.timer-ring.delay)/ms.maxTimer);
         if(rt<=0)continue;
         const rr=(1-rt)*W*0.6;
+        // rt*(1-rt) は開始・終了で0になり波紋が見えない → sin ベースで通しで見えるように
+        const strokeA = Math.min(0.78, 0.18 + 0.62 * Math.sin(rt * Math.PI));
         ctx.beginPath(); ctx.arc(W/2,H*0.42,rr,0,Math.PI*2);
-        ctx.strokeStyle=`rgba(${ms.color},${rt*(1-rt)*3*0.3})`;
-        ctx.lineWidth=1.5; ctx.stroke();
+        ctx.strokeStyle=`rgba(${ms.color},${strokeA})`;
+        ctx.lineWidth=2.25; ctx.stroke();
       }
     }
   }

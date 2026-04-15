@@ -29,6 +29,9 @@ class AudioController {
 
     // クリックの過剰連射防止
     this._lastClickTime = 0;
+
+    this._bgmFileBuffer = null;
+    this._pageAudioBound = false;
   }
 
   // ─────────────────────────── 初期化 ──────────────────────────
@@ -83,9 +86,67 @@ class AudioController {
 
       await this.resumeIfNeeded();
       this.initialized = true;
+      this._wirePageAudioResume();
     } catch(e) {
       console.warn('[AudioController] init error:', e);
       throw e;
+    }
+  }
+
+  _wirePageAudioResume() {
+    if (this._pageAudioBound) return;
+    this._pageAudioBound = true;
+    const kick = () => {
+      this.resumeIfNeeded().then(() => {
+        if (this._bgmFileBuffer && this.ac && this.ac.state === 'running') {
+          this._startFileBGMLoop(true);
+        }
+      });
+    };
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) kick();
+    });
+    window.addEventListener('pageshow', kick);
+    window.addEventListener('focus', kick);
+  }
+
+  _stopBgmSource() {
+    if (!this._bgmSource) return;
+    try {
+      this._bgmSource.stop(0);
+    } catch (_) { /* already stopped */ }
+    try {
+      this._bgmSource.disconnect();
+    } catch (_) { /* */ }
+    this._bgmSource = null;
+  }
+
+  /** ファイルBGMを（再）開始。タブ復帰・suspend 復旧用 */
+  _startFileBGMLoop(isResume) {
+    if (!this.ac || !this._bgmGain || !this._bgmFileBuffer) return;
+    this._stopBgmSource();
+    const ac = this.ac;
+    const src = ac.createBufferSource();
+    src.buffer = this._bgmFileBuffer;
+    src.loop = true;
+    src.connect(this._bgmGain);
+    this._bgmSource = src;
+    src.onended = () => {
+      if (this._bgmFileBuffer) this._startFileBGMLoop(true);
+    };
+    try {
+      src.start(0);
+    } catch (e) {
+      console.warn('[AudioController] BGM start failed:', e);
+      return;
+    }
+    const now = ac.currentTime;
+    this._bgmGain.gain.cancelScheduledValues(now);
+    if (isResume) {
+      this._bgmGain.gain.setValueAtTime(1, now);
+    } else {
+      this._bgmGain.gain.setValueAtTime(0, now);
+      this._bgmGain.gain.setTargetAtTime(1.0, now + 0.35, 1.8);
     }
   }
 
@@ -100,13 +161,8 @@ class AudioController {
     const bgmBuf = this.assets.getAudioBuffer('bgm');
 
     if (bgmBuf) {
-      // ─── ファイルBGM ───
-      this._bgmSource = ac.createBufferSource();
-      this._bgmSource.buffer = bgmBuf;
-      this._bgmSource.loop   = true;
-      this._bgmSource.connect(this._bgmGain);
-      this._bgmSource.start();
-      this._bgmGain.gain.setTargetAtTime(1.0, ac.currentTime + 0.5, 2.0);
+      this._bgmFileBuffer = bgmBuf;
+      this._startFileBGMLoop(false);
 
     } else {
       // ─── 合成パッドフォールバック ───
@@ -193,11 +249,13 @@ class AudioController {
     this._gearGain.gain.setTargetAtTime(gv, now, 0.1);
     this._gearFilter.frequency.setTargetAtTime(Math.min(2800, 400 + speed * 2500), now, 0.12);
 
-    // 合成パッドのフェーズ連動
+    // 合成パッドのフェーズ連動（ファイルBGM時は _synthPads が無い）
     const shift = phaseIdx * 0.04;
-    this._synthPads.forEach(p => {
-      p.g.gain.setTargetAtTime(Math.min(0.16, p.base * (1 + shift)), now, 2.5);
-    });
+    if (this._synthPads && this._synthPads.length) {
+      this._synthPads.forEach(p => {
+        p.g.gain.setTargetAtTime(Math.min(0.16, p.base * (1 + shift)), now, 2.5);
+      });
+    }
   }
 
   // ─────────────────────────── ワンショット ────────────────────

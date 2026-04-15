@@ -1,3 +1,9 @@
+/** 累積角が大きいと sin/cos/rotate の精度が落ちるので描画だけ 0〜2π に折り返す */
+function wrapAngleRad(theta) {
+  const T = Math.PI * 2;
+  return ((theta % T) + T) % T;
+}
+
 /**
  * GearRenderer — 歯車描画
  * - AssetLoader経由でgear_textureが渡されれば overlay合成
@@ -124,8 +130,8 @@ class GearRenderer {
       ctx.fillStyle = tgg; ctx.beginPath(); ctx.arc(0,0,r*1.15,0,Math.PI*2); ctx.fill();
     }
 
-    // ─── 本体 ───
-    ctx.rotate(gear.angle);
+    // ─── 本体（論理角はそのまま累積、描画だけ折り返して高精細に） ───
+    ctx.rotate(wrapAngleRad(gear.angle));
     this._drawGearShape(ctx, r, teethCount, brightness, tPos, glow, energy, isRightmost, texture);
     ctx.restore();
   }
