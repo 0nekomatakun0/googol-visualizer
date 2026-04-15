@@ -84,8 +84,12 @@
     setTimeout(function() { muteToggle.classList.add('visible'); }, 2800);
   }
 
-  btnSoundOn.addEventListener('click',  function(e) { e.stopPropagation(); startWithSound(false); });
-  btnSoundOff.addEventListener('click', function(e) { e.stopPropagation(); startWithSound(true);  });
+  function addSoundBtn(el, muted) {
+    el.addEventListener('click', function(e) { e.stopPropagation(); startWithSound(muted); });
+    el.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); startWithSound(muted); });
+  }
+  addSoundBtn(btnSoundOn,  false);
+  addSoundBtn(btnSoundOff, true);
 
   // ─── 慣性係数 ───
   const INERTIA = [];
