@@ -3,7 +3,7 @@
 
   "audio": {
     "bgm":           "audio/bgm.mp3",
-    "se_gear_click": "audio/se_gear_click.mp3"",
+    "se_gear_click": "audio/se_gear_click.mp3",
     "se_shooting_star": null,
     "se_milestone":  null,
     "se_goal":       null
